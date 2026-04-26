@@ -1,6 +1,6 @@
 # elysia-loom
 
-Alpha CLI for adding Loom conventions to Bun/Elysia apps.
+Alpha CLI for adding Loom conventions to Bun/Elysia apps. Requires Bun.
 
 Loom is convention over configuration for agent-driven backend work. The package installs a project-local `bun loom` CLI into a target Elysia app so agents can create modules, resources, tests, route maps, and context files without hand-editing app structure.
 
@@ -26,6 +26,7 @@ bun loom validate resource users --from .loom/specs/users.resource.json
 bun loom routes
 bun loom sync
 bun loom check
+bun loom --version
 ```
 
 ## Repository Shape
@@ -33,10 +34,10 @@ bun loom check
 This repository is the CLI package, not an Elysia app.
 
 ```txt
-scripts/               CLI and installer source
+src/                   CLI product source (TypeScript modules)
+dist/                  built bundle (loom.js — copied into target apps)
 templates/default/     files copied into target Elysia apps
 tests/                 package tests
-fixtures/              optional static golden Elysia apps
 .tmp/                  ignored generated target apps during e2e tests
 ```
 
@@ -44,9 +45,10 @@ fixtures/              optional static golden Elysia apps
 
 ```bash
 bun install
-bun run check
+bun run build          # produces dist/loom.js
+bun run check          # build + test + pack verification
 ```
 
-`bun run check` runs the package tests, including generated target-app coverage, then verifies the publish package with `bun pm pack --dry-run`.
+`bun run check` builds the optimized bundle, runs all tests (including generated target-app E2E coverage), then verifies the publish package with `bun pm pack --dry-run`.
 
 Alpha note: breaking CLI and template changes are expected until the target conventions settle.

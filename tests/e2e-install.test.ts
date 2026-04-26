@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
-import { installLoom } from "../scripts/install-loom";
-import { runLoom } from "../scripts/loom";
+import { installLoom } from "../src/installer";
+import { runLoom } from "../src/loom";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const tmpRoot = join(repoRoot, ".tmp");
@@ -60,7 +60,7 @@ describe("loom target app e2e", () => {
     const installedIndex = await readFile(join(target, "src", "index.ts"), "utf8");
 
     expect(installedPackage.dependencies.elysia).toBe("latest");
-    expect(installedPackage.scripts.loom).toBe("bun run scripts/loom.ts");
+    expect(installedPackage.scripts.loom).toBe("bun run scripts/loom.js");
     expect(installedIndex).toContain("Hello from test app");
     expect(installedIndex).toContain("healthController");
     expect(installedIndex).toContain("// [LOOM_IMPORT_ANCHOR]");

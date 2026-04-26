@@ -1,6 +1,0 @@
-{
-  "runtime": "Bun",
-  "framework": "Elysia",
-  "schema": "TypeBox",
-  "pattern": "CSS"
-}

@@ -2,26 +2,27 @@
   "name": "elysia-loom",
   "version": "0.2.0-alpha.0",
   "bin": {
-    "elysia-loom": "./scripts/install-loom.ts",
-    "create-loom": "./scripts/install-loom.ts",
-    "loom-install": "./scripts/install-loom.ts"
+    "elysia-loom": "./src/installer.ts",
+    "create-loom": "./src/installer.ts",
+    "loom-install": "./src/installer.ts"
   },
   "files": [
-    "scripts/install-loom.ts",
-    "scripts/loom.ts",
+    "src",
+    "dist/loom.js",
     "templates/default"
   ],
   "scripts": {
-    "check": "bun test && bun pm pack --dry-run",
+    "build": "bun build src/loom.ts --outfile dist/loom.js --target bun --minify",
+    "check": "bun run build && bun test && bun pm pack --dry-run",
     "pack:check": "bun pm pack --dry-run",
     "test": "bun test",
-    "loom": "bun run scripts/loom.ts",
-    "loom:install": "bun run scripts/install-loom.ts",
+    "loom": "bun run src/loom.ts",
+    "loom:install": "bun run src/installer.ts",
     "hooks:install": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
     "bun-types": "latest",
     "elysia": "latest"
   },
-  "module": "scripts/loom.ts"
+  "module": "src/loom.ts"
 }

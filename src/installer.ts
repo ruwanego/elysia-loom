@@ -37,8 +37,8 @@ const TEMPLATE_COPY_PATHS = [
   ".github/workflows/loom.yml"
 ];
 
-const PROJECT_COPY_PATHS = [
-  "scripts/loom.ts"
+const DIST_COPY_PATHS: Array<{ from: string; to: string }> = [
+  { from: "dist/loom.js", to: "scripts/loom.js" }
 ];
 
 class InstallError extends Error {}
@@ -93,7 +93,6 @@ LOOM INSTALLER
 Usage:
   bunx elysia-loom <target> [flags]
   bun run loom:install <target> [flags]
-  bun run scripts/install-loom.ts <target> [flags]
 
 Flags:
   --health, --with-health  Generate health module and tests after install
@@ -127,8 +126,8 @@ async function copyLoomFiles(config: InstallOptions) {
     await copyProjectFile(config, TEMPLATE_ROOT, relativePath);
   }
 
-  for (const relativePath of PROJECT_COPY_PATHS) {
-    await copyProjectFile(config, SOURCE_ROOT, relativePath);
+  for (const { from, to } of DIST_COPY_PATHS) {
+    await copyDistFile(config, from, to);
   }
 }
 
@@ -137,7 +136,7 @@ async function updatePackageJson(config: InstallOptions) {
   const pkg = JSON.parse(await readFile(path, "utf8"));
   const scripts = { ...(pkg.scripts ?? {}) };
 
-  scripts.loom = "bun run scripts/loom.ts";
+  scripts.loom = "bun run scripts/loom.js";
   scripts["loom:check"] = "bun loom check";
   scripts["hooks:install"] = "git config core.hooksPath .githooks";
 
@@ -238,6 +237,23 @@ async function copyProjectFile(config: InstallOptions, sourceRoot: string, relat
 
   if (config.dryRun) {
     config.log(`[dry-run] copy ${relativePath}`);
+    return;
+  }
+
+  await mkdir(dirname(target), { recursive: true });
+  await copyFile(source, target);
+}
+
+async function copyDistFile(config: InstallOptions, from: string, to: string) {
+  const source = join(SOURCE_ROOT, from);
+  const target = join(config.target, to);
+
+  if (!config.force && await pathExists(target)) {
+    throw new InstallError(`Refusing to overwrite existing file without --force: ${to}`);
+  }
+
+  if (config.dryRun) {
+    config.log(`[dry-run] copy ${from} -> ${to}`);
     return;
   }
 

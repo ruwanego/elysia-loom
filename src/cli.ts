@@ -1,0 +1,344 @@
+/**
+ * LOOM CLI
+ * Argument parsing, command dispatch, and help output.
+ */
+
+import { VERSION } from "./constants";
+import { syncContext } from "./context";
+import { printInfo, printRoutes, runCheck, runDoctor } from "./doctor";
+import { runChildCommand } from "./fs";
+import {
+  addRoute,
+  generateModule,
+  generateModuleTest,
+  generateResource,
+  inspectModule,
+  removeModule
+} from "./modules";
+import { createResourceSpec } from "./resource";
+import { refreshBrief, refreshSkeleton } from "./context";
+import { normalizeModuleName } from "./utils";
+import type { LoomContext, ModuleMeta, ParsedArgs } from "./types";
+import { LoomError, createContext } from "./types";
+
+export async function runLoom(argv: string[], options: Partial<LoomContext> = {}) {
+  const baseCtx = createContext(options);
+
+  if (argv.includes("--version") || argv.includes("-V")) {
+    baseCtx.log(VERSION);
+    return 0;
+  }
+
+  try {
+    const parsed = parseArgs(argv);
+    const ctx = createContext({
+      ...options,
+      dryRun: Boolean(options.dryRun) || parsed.dryRun,
+      emitJson: Boolean(options.emitJson) || parsed.emitJson
+    });
+
+    switch (parsed.command) {
+      case "m":
+      case "make":
+        await runMakeCommand(parsed, ctx);
+        return 0;
+
+      case "g":
+      case "generate":
+        await requireModuleName(parsed.args[0], (meta) => generateModule(meta, ctx));
+        return 0;
+
+      case "r":
+      case "remove":
+        await requireModuleName(parsed.args[0], (meta) => removeModule(meta, ctx));
+        return 0;
+
+      case "route":
+        await addRoute(parsed.args[0], parsed.args[1], parsed.args[2], ctx);
+        return 0;
+
+      case "test":
+        await requireModuleName(parsed.args[0], (meta) => generateModuleTest(meta, ctx));
+        return 0;
+
+      case "plan":
+        await runPlanCommand(parsed, ctx);
+        return 0;
+
+      case "validate":
+        return await runValidateCommand(parsed, ctx);
+
+      case "sync":
+        await syncContext(ctx);
+        return 0;
+
+      case "check":
+        return await runCheck(ctx);
+
+      case "routes":
+        await printRoutes(ctx);
+        return 0;
+
+      case "info":
+        await printInfo(ctx);
+        return 0;
+
+      case "dev":
+        return await runChildCommand(ctx, ["bun", "run", "dev"]);
+
+      case "brief":
+        await refreshBrief(ctx);
+        return 0;
+
+      case "inspect":
+        await requireModuleName(parsed.args[0], (meta) => inspectModule(meta, ctx));
+        return 0;
+
+      case "s":
+      case "skeleton":
+        await refreshSkeleton(ctx);
+        return 0;
+
+      case "doctor":
+        return await runDoctor(ctx, parsed.strict);
+
+      case "list":
+      case "help":
+      case undefined:
+      default:
+        printHelp(ctx);
+        return ["help", "list", undefined].includes(parsed.command) ? 0 : 1;
+    }
+  } catch (error) {
+    if (error instanceof LoomError) {
+      baseCtx.error(error.message);
+      return 1;
+    }
+
+    throw error;
+  }
+}
+
+function parseArgs(argv: string[]): ParsedArgs {
+  const dryRunFlags = new Set(["--dry-run", "-n"]);
+  const jsonFlags = new Set(["--json", "--with-json"]);
+  const strictFlags = new Set(["--strict"]);
+  const fieldFlags = new Set(["--field", "-f"]);
+  const positional: string[] = [];
+  const fields: string[] = [];
+  let dryRun = false;
+  let emitJson = false;
+  let strict = false;
+  let from: string | undefined;
+  let route: string | undefined;
+  let plural: string | undefined;
+  let test = false;
+  let noTest = false;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
+    if (dryRunFlags.has(arg)) {
+      dryRun = true;
+      continue;
+    }
+
+    if (jsonFlags.has(arg)) {
+      emitJson = true;
+      continue;
+    }
+
+    if (strictFlags.has(arg)) {
+      strict = true;
+      continue;
+    }
+
+    if (fieldFlags.has(arg)) {
+      fields.push(readFlagValue(argv, index, arg));
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--route") {
+      route = readFlagValue(argv, index, arg);
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--from") {
+      from = readFlagValue(argv, index, arg);
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--plural") {
+      plural = readFlagValue(argv, index, arg);
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--test" || arg === "--spec") {
+      test = true;
+      continue;
+    }
+
+    if (arg === "--no-test" || arg === "--no-spec") {
+      noTest = true;
+      continue;
+    }
+
+    positional.push(arg);
+  }
+
+  return {
+    command: positional[0] ?? "help",
+    args: positional.slice(1),
+    dryRun,
+    emitJson,
+    strict,
+    fields,
+    from,
+    route,
+    plural,
+    test,
+    noTest
+  };
+}
+
+function readFlagValue(argv: string[], index: number, flag: string) {
+  const value = argv[index + 1];
+
+  if (!value || value.startsWith("-")) {
+    throw new LoomError(`Missing value for ${flag}.`);
+  }
+
+  return value;
+}
+
+function printHelp(ctx: LoomContext) {
+  ctx.log(`
+LOOM CLI v${VERSION}
+Usage: bun loom <command> [args]
+
+Commands:
+  make module <name>        Create a CSS module and auto-register it
+  make resource <name>      Create typed CRUD resource from --field flags
+  g, generate <name>        Create a CSS module and auto-register it
+  r, remove <name>          Remove a generated module and registration
+  route <mod> <method> <p>  Add a service-backed route to a module
+  test <module>             Generate Bun tests for a CSS module
+  sync                      Refresh brief, skeleton.md, and skeleton.json
+  check                     Run strict doctor and bun test
+  plan <kind> <name>        Preview generated files without writing
+  validate [kind] [name]    Validate project or resource specs
+  routes                    Print registered module routes
+  info                      Print Loom project summary
+  dev                       Run bun run dev
+  brief                     Refresh the ultra-small agent context
+  inspect <module>          Print one module's compact context
+  s, skeleton               Refresh the Markdown context map
+  doctor                    Audit Loom drift and registration health
+  list, help                Show this menu
+
+Flags:
+  --version, -V             Print Loom CLI version
+  --dry-run, -n             Print planned writes without changing files
+  --json, --with-json       Write both skeleton.md and skeleton.json
+  --field, -f <spec>        Resource field: name:type:required:min=1
+  --from <path>             Read resource spec JSON
+  --route <path>            Resource route prefix override
+  --strict                  Enforce TDD and state-management gates in doctor
+`);
+}
+
+async function runMakeCommand(parsed: ParsedArgs, ctx: LoomContext) {
+  const [kind, name] = parsed.args;
+
+  switch (kind) {
+    case "module":
+      await requireModuleName(name, (meta) => generateModule(meta, ctx));
+      return;
+
+    case "resource":
+      await requireModuleName(name, (meta) => generateResource(meta, {
+        fields: parsed.fields,
+        route: parsed.route,
+        plural: parsed.plural,
+        from: parsed.from,
+        generateTest: !parsed.noTest
+      }, ctx));
+      return;
+
+    case undefined:
+      throw new LoomError("Usage: bun loom make <module|resource> <name>");
+
+    default:
+      throw new LoomError(`Unsupported make target [${kind}].`);
+  }
+}
+
+async function runPlanCommand(parsed: ParsedArgs, ctx: LoomContext) {
+  const [kind, name] = parsed.args;
+  const planCtx = { ...ctx, dryRun: true };
+
+  switch (kind) {
+    case "module":
+      await requireModuleName(name, (meta) => generateModule(meta, planCtx));
+      return;
+
+    case "resource":
+      await requireModuleName(name, (meta) => generateResource(meta, {
+        fields: parsed.fields,
+        route: parsed.route,
+        plural: parsed.plural,
+        from: parsed.from,
+        generateTest: !parsed.noTest
+      }, planCtx));
+      return;
+
+    case undefined:
+      throw new LoomError("Usage: bun loom plan <module|resource> <name>");
+
+    default:
+      throw new LoomError(`Unsupported plan target [${kind}].`);
+  }
+}
+
+async function runValidateCommand(parsed: ParsedArgs, ctx: LoomContext) {
+  const [kind, name] = parsed.args;
+
+  if (!kind) {
+    return await runDoctor(ctx, false);
+  }
+
+  if (kind !== "resource") {
+    throw new LoomError(`Unsupported validate target [${kind}].`);
+  }
+
+  await requireModuleName(name, async (meta) => {
+    const spec = await createResourceSpec(meta, {
+      fields: parsed.fields,
+      route: parsed.route,
+      plural: parsed.plural,
+      from: parsed.from,
+      generateTest: !parsed.noTest
+    }, ctx);
+
+    ctx.log(`Resource spec valid: ${spec.meta.slug}`);
+    ctx.log(`Route: ${spec.routePrefix}`);
+    ctx.log(`Fields: ${spec.fields.map((field) => field.name).join(", ")}`);
+  });
+
+  return 0;
+}
+
+async function requireModuleName(
+  name: string | undefined,
+  action: (meta: ModuleMeta) => Promise<void>
+) {
+  if (!name) {
+    throw new LoomError("Error: module name required.");
+  }
+
+  await action(normalizeModuleName(name));
+}

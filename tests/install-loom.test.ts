@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { installLoom } from "../scripts/install-loom";
+import { installLoom } from "../src/installer";
 
 let root = "";
 
@@ -41,14 +41,15 @@ afterEach(async () => {
 describe("loom installer", () => {
   test("exposes a bunx-compatible package bin", async () => {
     const pkg = JSON.parse(await readFile(join(import.meta.dir, "..", "package.json"), "utf8"));
-    const installer = await readFile(join(import.meta.dir, "..", "scripts", "install-loom.ts"), "utf8");
+    const installer = await readFile(join(import.meta.dir, "..", "src", "installer.ts"), "utf8");
 
     expect(pkg.name).toBe("elysia-loom");
     expect(pkg.version).toContain("alpha");
-    expect(pkg.bin["elysia-loom"]).toBe("./scripts/install-loom.ts");
-    expect(pkg.bin["create-loom"]).toBe("./scripts/install-loom.ts");
-    expect(pkg.bin["loom-install"]).toBe("./scripts/install-loom.ts");
-    expect(pkg.files).toContain("scripts/install-loom.ts");
+    expect(pkg.bin["elysia-loom"]).toBe("./src/installer.ts");
+    expect(pkg.bin["create-loom"]).toBe("./src/installer.ts");
+    expect(pkg.bin["loom-install"]).toBe("./src/installer.ts");
+    expect(pkg.files).toContain("src");
+    expect(pkg.files).toContain("dist/loom.js");
     expect(pkg.files).toContain("templates/default");
     expect(installer.startsWith("#!/usr/bin/env bun")).toBe(true);
   });
@@ -63,12 +64,12 @@ describe("loom installer", () => {
     const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
     const index = await readFile(join(root, "src", "index.ts"), "utf8");
 
-    expect(pkg.scripts.loom).toBe("bun run scripts/loom.ts");
+    expect(pkg.scripts.loom).toBe("bun run scripts/loom.js");
     expect(pkg.scripts["loom:check"]).toBe("bun loom check");
     expect(pkg.scripts.prepare).toBe("bun run hooks:install");
     expect(index).toContain("// [LOOM_IMPORT_ANCHOR]");
     expect(index).toContain("// [LOOM_MODULE_ANCHOR]");
-    expect(await readFile(join(root, "scripts", "loom.ts"), "utf8")).toContain("LOOM CLI");
+    expect(await readFile(join(root, "scripts", "loom.js"), "utf8")).toBeTruthy();
     expect(await readFile(join(root, ".loom", "AGENT.md"), "utf8")).toContain("Optimized Loom Protocol");
     expect(await readFile(join(root, ".loom", "manifest.json"), "utf8")).toContain("\"framework\": \"Elysia\"");
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).toContain("Agent Bootstrap");
