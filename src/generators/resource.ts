@@ -15,7 +15,7 @@ import type {
   ResourceSpecFile
 } from "../lib/types";
 import { LoomError, createContext } from "../lib/types";
-import { camelName, escapeTsString, normalizeModuleName, titleName, trimLiteralQuotes } from "../lib/utils";
+import { camelName, escapeTsString, titleName, trimLiteralQuotes } from "../lib/utils";
 
 export async function createResourceSpec(
   meta: ModuleMeta,

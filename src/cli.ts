@@ -7,6 +7,7 @@ import { VERSION } from "./lib/constants";
 import { generateCoreArtifact, initSwagger, removeCoreArtifact } from "./generators/core";
 import type { CoreArtifactKind } from "./generators/core-templates";
 import { syncContext } from "./engine/context";
+import { refreshBrief, refreshSkeleton } from "./engine/context";
 import { printInfo, printRoutes, runCheck, runDoctor } from "./engine/doctor";
 import { runChildCommand } from "./lib/fs";
 import {
@@ -18,7 +19,6 @@ import {
 } from "./generators/modules";
 import { generateResource } from "./generators/modules";
 import { createResourceSpec } from "./generators/resource";
-import { refreshBrief, refreshSkeleton } from "./engine/context";
 import { normalizeModuleName } from "./lib/utils";
 import type { LoomContext, ModuleMeta, ParsedArgs } from "./lib/types";
 import { LoomError, createContext } from "./lib/types";

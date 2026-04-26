@@ -4,11 +4,11 @@
  */
 
 import { Glob } from "bun";
-import { LOOM_GENERATED_MARKER, LOOM_GENERATED_HEADER, PACKAGE_PATH } from "../lib/constants";
+import { LOOM_GENERATED_MARKER, PACKAGE_PATH } from "../lib/constants";
 import { CORE_TEMPLATE_MAP, type CoreArtifactKind } from "./core-templates";
 import { refreshSkeleton } from "../engine/context";
-import { makeDir, pathExists, readJsonIfExists, readText, readTextIfExists, removePath, writeText } from "../lib/fs";
-import { normalizeModuleName, normalizeSlash } from "../lib/utils";
+import { makeDir, pathExists, readJsonIfExists, readTextIfExists, removePath, writeText } from "../lib/fs";
+import { normalizeSlash } from "../lib/utils";
 import type { LoomContext, ModuleMeta } from "../lib/types";
 import { ANCHORS, LoomError, createContext } from "../lib/types";
 

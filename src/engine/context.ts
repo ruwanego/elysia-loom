@@ -22,14 +22,9 @@ import {
   scanProjectFiles,
   writeText
 } from "../lib/fs";
-import { normalizeSlash, normalizeModuleName } from "../lib/utils";
+import { normalizeSlash } from "../lib/utils";
 import type {
-  ControllerImport,
-  LoomContext,
-  RouteSignature,
-  SkeletonContext,
-  SkeletonFile,
-  SkeletonModule
+  LoomContext
 } from "../lib/types";
 import { ANCHORS, createContext } from "../lib/types";
 
