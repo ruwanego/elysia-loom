@@ -63,15 +63,15 @@ describe("loom installer", () => {
     const index = await readFile(join(root, "src", "index.ts"), "utf8");
 
     expect(pkg.scripts.loom).toBe("bun run scripts/loom.ts");
-    expect(pkg.scripts["loom:check"]).toBe("bun loom doctor --strict && bun test");
+    expect(pkg.scripts["loom:check"]).toBe("bun loom check");
     expect(pkg.scripts.prepare).toBe("bun run hooks:install");
     expect(index).toContain("// [LOOM_IMPORT_ANCHOR]");
     expect(index).toContain("// [LOOM_MODULE_ANCHOR]");
     expect(await readFile(join(root, "scripts", "loom.ts"), "utf8")).toContain("LOOM CLI");
     expect(await readFile(join(root, ".loom", "AGENT.md"), "utf8")).toContain("Optimized Loom Protocol");
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).toContain("Agent Bootstrap");
-    expect(await readFile(join(root, ".github", "workflows", "loom.yml"), "utf8")).toContain("bun loom doctor --strict");
-    expect(await readFile(join(root, ".githooks", "pre-push"), "utf8")).toContain("bun loom doctor --strict");
+    expect(await readFile(join(root, ".github", "workflows", "loom.yml"), "utf8")).toContain("bun loom check");
+    expect(await readFile(join(root, ".githooks", "pre-push"), "utf8")).toContain("bun loom check");
   });
 
   test("refuses to overwrite existing Loom files without force", async () => {

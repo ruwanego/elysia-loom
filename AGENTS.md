@@ -11,7 +11,12 @@ Before any task:
 
 Loom rules that must not be missed:
 
-- Create modules with `bun loom g <name>`.
+- Create modules with `bun loom make module <name>` or `bun loom g <name>`.
+- Create typed CRUD resources with `bun loom make resource <name> --field <name:type>`.
+- Refresh context with `bun loom sync`.
+- Verify handoff with `bun loom check`.
+- List routes with `bun loom routes`.
+- Inspect project state with `bun loom info`.
 - Add module routes with `bun loom route <module> <method> <path>`.
 - Generate module tests with `bun loom test <module>`.
 - Inspect one module with `bun loom inspect <module>`.
@@ -22,4 +27,4 @@ Loom rules that must not be missed:
 - For behavior changes, write or generate tests before implementation.
 - Run `bun loom s` after signature or schema changes.
 - Run `bun loom s --json` when the structured context file should exist or be refreshed.
-- Run `bun loom doctor --strict` before handing work back.
+- Run `bun loom check` before handing work back.

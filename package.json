@@ -18,7 +18,7 @@
     "tests/loom.test.ts"
   ],
   "scripts": {
-    "check": "bun loom doctor --strict && bun test",
+    "check": "bun loom check",
     "test": "bun test",
     "dev": "bun run --watch src/index.ts",
     "loom": "bun run scripts/loom.ts",

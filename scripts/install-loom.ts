@@ -131,7 +131,7 @@ async function updatePackageJson(config: InstallOptions) {
   const scripts = { ...(pkg.scripts ?? {}) };
 
   scripts.loom = "bun run scripts/loom.ts";
-  scripts["loom:check"] = "bun loom doctor --strict && bun test";
+  scripts["loom:check"] = "bun loom check";
   scripts["hooks:install"] = "git config core.hooksPath .githooks";
 
   if (!scripts.test) {

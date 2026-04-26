@@ -24,6 +24,12 @@ const LOOM_GENERATED_HEADER = `// ${LOOM_GENERATED_MARKER}
 const HTTP_METHODS = new Set(["get", "post", "put", "patch", "delete", "options", "head"]);
 const FORBIDDEN_PACKAGES = ["zod", "express"];
 const EXPECTED_PROTOCOL_COMMANDS = [
+  "bun loom make module <name>",
+  "bun loom make resource <name> --field <name:type>",
+  "bun loom sync",
+  "bun loom check",
+  "bun loom routes",
+  "bun loom info",
   "bun loom g <name>",
   "bun loom route <module> <method> <path>",
   "bun loom test <module>",
@@ -60,6 +66,11 @@ type ParsedArgs = {
   dryRun: boolean;
   emitJson: boolean;
   strict: boolean;
+  fields: string[];
+  route?: string;
+  plural?: string;
+  test: boolean;
+  noTest: boolean;
 };
 
 type ControllerImport = {
@@ -109,6 +120,37 @@ type SkeletonContext = {
   files: SkeletonFile[];
 };
 
+type ResourceFieldType =
+  | { kind: "string" }
+  | { kind: "number" }
+  | { kind: "integer" }
+  | { kind: "boolean" }
+  | { kind: "uuid" }
+  | { kind: "email" }
+  | { kind: "url" }
+  | { kind: "date" }
+  | { kind: "json" }
+  | { kind: "enum"; values: string[] }
+  | { kind: "array"; item: ResourceFieldType };
+
+type ResourceField = {
+  name: string;
+  type: ResourceFieldType;
+  required: boolean;
+  readonly: boolean;
+  nullable: boolean;
+  constraints: Record<string, string>;
+};
+
+type ResourceSpec = {
+  meta: ModuleMeta;
+  routePrefix: string;
+  fields: ResourceField[];
+  idField: ResourceField;
+  createFields: ResourceField[];
+  updateFields: ResourceField[];
+};
+
 class LoomError extends Error {}
 
 export function createContext(options: Partial<LoomContext> = {}): LoomContext {
@@ -122,15 +164,22 @@ export function createContext(options: Partial<LoomContext> = {}): LoomContext {
 }
 
 export async function runLoom(argv: string[], options: Partial<LoomContext> = {}) {
-  const parsed = parseArgs(argv);
-  const ctx = createContext({
-    ...options,
-    dryRun: Boolean(options.dryRun) || parsed.dryRun,
-    emitJson: Boolean(options.emitJson) || parsed.emitJson
-  });
+  const baseCtx = createContext(options);
 
   try {
+    const parsed = parseArgs(argv);
+    const ctx = createContext({
+      ...options,
+      dryRun: Boolean(options.dryRun) || parsed.dryRun,
+      emitJson: Boolean(options.emitJson) || parsed.emitJson
+    });
+
     switch (parsed.command) {
+      case "m":
+      case "make":
+        await runMakeCommand(parsed, ctx);
+        return 0;
+
       case "g":
       case "generate":
         await requireModuleName(parsed.args[0], (meta) => generateModule(meta, ctx));
@@ -149,6 +198,24 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
         await requireModuleName(parsed.args[0], (meta) => generateModuleTest(meta, ctx));
         return 0;
 
+      case "sync":
+        await syncContext(ctx);
+        return 0;
+
+      case "check":
+        return await runCheck(ctx);
+
+      case "routes":
+        await printRoutes(ctx);
+        return 0;
+
+      case "info":
+        await printInfo(ctx);
+        return 0;
+
+      case "dev":
+        return await runChildCommand(ctx, ["bun", "run", "dev"]);
+
       case "brief":
         await refreshBrief(ctx);
         return 0;
@@ -165,15 +232,16 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
       case "doctor":
         return await runDoctor(ctx, parsed.strict);
 
+      case "list":
       case "help":
       case undefined:
       default:
         printHelp(ctx);
-        return parsed.command === "help" || parsed.command === undefined ? 0 : 1;
+        return ["help", "list", undefined].includes(parsed.command) ? 0 : 1;
     }
   } catch (error) {
     if (error instanceof LoomError) {
-      ctx.error(error.message);
+      baseCtx.error(error.message);
       return 1;
     }
 
@@ -185,18 +253,88 @@ function parseArgs(argv: string[]): ParsedArgs {
   const dryRunFlags = new Set(["--dry-run", "-n"]);
   const jsonFlags = new Set(["--json", "--with-json"]);
   const strictFlags = new Set(["--strict"]);
-  const dryRun = argv.some((arg) => dryRunFlags.has(arg));
-  const emitJson = argv.some((arg) => jsonFlags.has(arg));
-  const strict = argv.some((arg) => strictFlags.has(arg));
-  const positional = argv.filter((arg) => !dryRunFlags.has(arg) && !jsonFlags.has(arg) && !strictFlags.has(arg));
+  const fieldFlags = new Set(["--field", "-f"]);
+  const positional: string[] = [];
+  const fields: string[] = [];
+  let dryRun = false;
+  let emitJson = false;
+  let strict = false;
+  let route: string | undefined;
+  let plural: string | undefined;
+  let test = false;
+  let noTest = false;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
+    if (dryRunFlags.has(arg)) {
+      dryRun = true;
+      continue;
+    }
+
+    if (jsonFlags.has(arg)) {
+      emitJson = true;
+      continue;
+    }
+
+    if (strictFlags.has(arg)) {
+      strict = true;
+      continue;
+    }
+
+    if (fieldFlags.has(arg)) {
+      fields.push(readFlagValue(argv, index, arg));
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--route") {
+      route = readFlagValue(argv, index, arg);
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--plural") {
+      plural = readFlagValue(argv, index, arg);
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--test" || arg === "--spec") {
+      test = true;
+      continue;
+    }
+
+    if (arg === "--no-test" || arg === "--no-spec") {
+      noTest = true;
+      continue;
+    }
+
+    positional.push(arg);
+  }
 
   return {
     command: positional[0] ?? "help",
     args: positional.slice(1),
     dryRun,
     emitJson,
-    strict
+    strict,
+    fields,
+    route,
+    plural,
+    test,
+    noTest
   };
+}
+
+function readFlagValue(argv: string[], index: number, flag: string) {
+  const value = argv[index + 1];
+
+  if (!value || value.startsWith("-")) {
+    throw new LoomError(`Missing value for ${flag}.`);
+  }
+
+  return value;
 }
 
 function printHelp(ctx: LoomContext) {
@@ -205,21 +343,55 @@ LOOM CLI
 Usage: bun loom <command> [args]
 
 Commands:
+  make module <name>        Create a CSS module and auto-register it
+  make resource <name>      Create typed CRUD resource from --field flags
   g, generate <name>        Create a CSS module and auto-register it
   r, remove <name>          Remove a generated module and registration
   route <mod> <method> <p>  Add a service-backed route to a module
   test <module>             Generate Bun tests for a CSS module
+  sync                      Refresh brief, skeleton.md, and skeleton.json
+  check                     Run strict doctor and bun test
+  routes                    Print registered module routes
+  info                      Print Loom project summary
+  dev                       Run bun run dev
   brief                     Refresh the ultra-small agent context
   inspect <module>          Print one module's compact context
   s, skeleton               Refresh the Markdown context map
   doctor                    Audit Loom drift and registration health
-  help                      Show this menu
+  list, help                Show this menu
 
 Flags:
   --dry-run, -n             Print planned writes without changing files
   --json, --with-json       Write both skeleton.md and skeleton.json
+  --field, -f <spec>        Resource field: name:type:required:min=1
+  --route <path>            Resource route prefix override
   --strict                  Enforce TDD and state-management gates in doctor
 `);
+}
+
+async function runMakeCommand(parsed: ParsedArgs, ctx: LoomContext) {
+  const [kind, name] = parsed.args;
+
+  switch (kind) {
+    case "module":
+      await requireModuleName(name, (meta) => generateModule(meta, ctx));
+      return;
+
+    case "resource":
+      await requireModuleName(name, (meta) => generateResource(meta, {
+        fields: parsed.fields,
+        route: parsed.route,
+        plural: parsed.plural,
+        generateTest: !parsed.noTest
+      }, ctx));
+      return;
+
+    case undefined:
+      throw new LoomError("Usage: bun loom make <module|resource> <name>");
+
+    default:
+      throw new LoomError(`Unsupported make target [${kind}].`);
+  }
 }
 
 async function requireModuleName(
@@ -275,6 +447,37 @@ export async function generateModule(meta: ModuleMeta, ctx = createContext()) {
   await syncAfterMutation(ctx);
 
   ctx.log(`Module [${meta.slug}] ${ctx.dryRun ? "planned" : "integrated"}.`);
+}
+
+export async function generateResource(
+  meta: ModuleMeta,
+  options: {
+    fields: string[];
+    route?: string;
+    plural?: string;
+    generateTest: boolean;
+  },
+  ctx = createContext()
+) {
+  const spec = createResourceSpec(meta, options);
+  await assertCanGenerate(meta, ctx, spec.routePrefix);
+
+  const dir = moduleDir(meta.slug);
+
+  ctx.log(`${ctx.dryRun ? "Planning" : "Generating"} resource: ${meta.slug}`);
+  await makeDir(ctx, dir);
+  await writeText(ctx, `${dir}/${meta.slug}.schema.ts`, resourceSchemaTemplate(spec));
+  await writeText(ctx, `${dir}/${meta.slug}.service.ts`, resourceServiceTemplate(spec));
+  await writeText(ctx, `${dir}/${meta.slug}.controller.ts`, resourceControllerTemplate(spec));
+
+  if (options.generateTest) {
+    await writeText(ctx, moduleTestPath(meta.slug), resourceTestTemplate(spec));
+  }
+
+  await registerModule(meta, ctx);
+  await syncAfterMutation(ctx);
+
+  ctx.log(`Resource [${meta.slug}] ${ctx.dryRun ? "planned" : "integrated"}.`);
 }
 
 export async function removeModule(meta: ModuleMeta, ctx = createContext()) {
@@ -402,7 +605,109 @@ export async function inspectModule(meta: ModuleMeta, ctx = createContext()) {
   ctx.log(lines.join("\n"));
 }
 
-async function assertCanGenerate(meta: ModuleMeta, ctx: LoomContext) {
+export async function syncContext(ctx = createContext()) {
+  await refreshSkeleton({ ...ctx, emitJson: true });
+}
+
+export async function runCheck(ctx = createContext()) {
+  if (ctx.dryRun) {
+    ctx.log("[dry-run] bun loom doctor --strict");
+    ctx.log("[dry-run] bun test");
+    return 0;
+  }
+
+  const doctorCode = await runDoctor(ctx, true);
+
+  if (doctorCode !== 0) {
+    return doctorCode;
+  }
+
+  return await runChildCommand(ctx, ["bun", "test"]);
+}
+
+export async function printRoutes(ctx = createContext()) {
+  const output = await createSkeletonOutput(ctx, "<routes>");
+  const lines = ["METHOD PATH MODULE RESPONSE"];
+
+  for (const module of output.json.modules) {
+    for (const route of module.routes) {
+      lines.push([
+        route.method.toUpperCase().padEnd(6),
+        fullRoutePath(module.prefix, route.path).padEnd(24),
+        module.name.padEnd(16),
+        route.response ?? "-"
+      ].join(" "));
+    }
+  }
+
+  if (lines.length === 1) {
+    lines.push("none");
+  }
+
+  ctx.log(lines.join("\n"));
+}
+
+export async function printInfo(ctx = createContext()) {
+  const output = await createSkeletonOutput(ctx, "<info>");
+  const manifest = await readJsonIfExists<Record<string, string>>(ctx, MANIFEST_PATH);
+  const pkg = await readJsonIfExists<Record<string, any>>(ctx, PACKAGE_PATH);
+  const moduleCount = output.json.modules.length;
+  const registeredCount = output.json.modules.filter((module) => module.registered).length;
+  const routeCount = output.json.modules.reduce((count, module) => count + module.routes.length, 0);
+  let testCount = 0;
+
+  for (const module of output.json.modules) {
+    if (await pathExists(ctx, moduleTestPath(module.name))) {
+      testCount += 1;
+    }
+  }
+
+  const lines = [
+    "LOOM INFO",
+    `Package: ${pkg?.name ?? "unknown"}`,
+    `Runtime: ${manifest?.runtime ?? "unknown"} / Bun ${Bun.version}`,
+    `Framework: ${manifest?.framework ?? "unknown"}`,
+    `Schema: ${manifest?.schema ?? "unknown"}`,
+    `Pattern: ${manifest?.pattern ?? "unknown"}`,
+    `Modules: ${moduleCount}`,
+    `Registered: ${registeredCount}/${moduleCount}`,
+    `Module tests: ${testCount}/${moduleCount}`,
+    `Routes: ${routeCount}`,
+    `Context: brief:${await pathExists(ctx, BRIEF_PATH) ? "yes" : "no"} skeleton.md:${await pathExists(ctx, SKELETON_MD_PATH) ? "yes" : "no"} skeleton.json:${await pathExists(ctx, SKELETON_JSON_PATH) ? "yes" : "no"}`
+  ];
+
+  ctx.log(lines.join("\n"));
+}
+
+async function runChildCommand(ctx: LoomContext, command: string[]) {
+  if (ctx.dryRun) {
+    ctx.log(`[dry-run] ${command.join(" ")}`);
+    return 0;
+  }
+
+  const process = Bun.spawn(command, {
+    cwd: ctx.root,
+    stdout: "inherit",
+    stderr: "inherit"
+  });
+  const code = await process.exited;
+
+  if (code !== 0) {
+    ctx.error(`Command failed (${code}): ${command.join(" ")}`);
+  }
+
+  return code;
+}
+
+function fullRoutePath(prefix: string, path: string) {
+  if (path === "/") {
+    return prefix;
+  }
+
+  return `${prefix.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+}
+
+async function assertCanGenerate(meta: ModuleMeta, ctx: LoomContext, routePrefix = `/${meta.slug}`) {
   const issues: string[] = [];
   const dir = moduleDir(meta.slug);
   const existingModules = await listModuleNames(ctx);
@@ -433,9 +738,9 @@ async function assertCanGenerate(meta: ModuleMeta, ctx: LoomContext) {
     }
   }
 
-  const duplicatePrefix = await findRoutePrefixOwner(ctx, `/${meta.slug}`);
+  const duplicatePrefix = await findRoutePrefixOwner(ctx, routePrefix);
   if (duplicatePrefix) {
-    issues.push(`Route prefix /${meta.slug} is already declared in ${duplicatePrefix}.`);
+    issues.push(`Route prefix ${routePrefix} is already declared in ${duplicatePrefix}.`);
   }
 
   const symbolOwner = await findExportOwner(ctx, meta.controllerName);
@@ -512,6 +817,604 @@ describe("${slug} module", () => {
   });
 });
 `;
+}
+
+function createResourceSpec(
+  meta: ModuleMeta,
+  options: { fields: string[]; route?: string; plural?: string }
+): ResourceSpec {
+  if (options.fields.length === 0) {
+    throw new LoomError("Resource generation requires at least one --field <name:type> flag.");
+  }
+
+  const parsedFields = options.fields.map(parseResourceField);
+  const fields = ensureResourceIdField(parsedFields);
+  const seen = new Set<string>();
+
+  for (const field of fields) {
+    if (seen.has(field.name)) {
+      throw new LoomError(`Duplicate resource field [${field.name}].`);
+    }
+
+    seen.add(field.name);
+  }
+
+  const routePrefix = normalizeRoutePrefix(options.route ?? (options.plural ? `/${normalizeModuleName(options.plural).slug}` : `/${meta.slug}`));
+  const idField = fields.find((field) => field.name === "id");
+
+  if (!idField) {
+    throw new LoomError("Resource generation failed to resolve an id field.");
+  }
+
+  return {
+    meta,
+    routePrefix,
+    fields,
+    idField,
+    createFields: fields.filter((field) => !field.readonly),
+    updateFields: fields.filter((field) => !field.readonly)
+  };
+}
+
+function parseResourceField(input: string): ResourceField {
+  const parts = input.split(":").map((part) => part.trim()).filter(Boolean);
+  const [name, typeRaw, ...tokens] = parts;
+
+  if (!name || !typeRaw) {
+    throw new LoomError(`Invalid field spec [${input}]. Use name:type[:required|optional|readonly|nullable][:min=1].`);
+  }
+
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new LoomError(`Invalid field name [${name}]. Use a TypeScript-safe identifier.`);
+  }
+
+  let required = true;
+  let sawRequired = false;
+  let sawOptional = false;
+  let readonly = false;
+  let nullable = false;
+  const constraints: Record<string, string> = {};
+
+  for (const token of tokens) {
+    if (token === "required") {
+      required = true;
+      sawRequired = true;
+      continue;
+    }
+
+    if (token === "optional") {
+      required = false;
+      sawOptional = true;
+      continue;
+    }
+
+    if (token === "readonly") {
+      readonly = true;
+      continue;
+    }
+
+    if (token === "nullable") {
+      nullable = true;
+      continue;
+    }
+
+    const constraint = token.match(/^([A-Za-z][A-Za-z0-9]*?)=(.+)$/);
+
+    if (!constraint) {
+      throw new LoomError(`Unsupported field token [${token}] in [${input}].`);
+    }
+
+    constraints[constraint[1]] = constraint[2];
+  }
+
+  if (sawRequired && sawOptional) {
+    throw new LoomError(`Field [${name}] cannot be both required and optional.`);
+  }
+
+  validateFieldConstraints(name, typeRaw, constraints);
+
+  return {
+    name,
+    type: parseResourceFieldType(typeRaw),
+    required,
+    readonly,
+    nullable,
+    constraints
+  };
+}
+
+function parseResourceFieldType(input: string): ResourceFieldType {
+  const type = input.trim();
+  const arrayMatch = type.match(/^array<(.+)>$/);
+  const enumMatch = type.match(/^enum\((.+)\)$/);
+
+  if (arrayMatch) {
+    return { kind: "array", item: parseResourceFieldType(arrayMatch[1]) };
+  }
+
+  if (enumMatch) {
+    const values = enumMatch[1].split(",").map((value) => value.trim()).filter(Boolean);
+
+    if (values.length === 0 || values.some((value) => !/^[A-Za-z0-9_-]+$/.test(value))) {
+      throw new LoomError(`Invalid enum type [${input}]. Use enum(admin,user).`);
+    }
+
+    return { kind: "enum", values };
+  }
+
+  switch (type) {
+    case "string":
+    case "number":
+    case "integer":
+    case "boolean":
+    case "uuid":
+    case "email":
+    case "url":
+    case "date":
+    case "json":
+      return { kind: type };
+
+    default:
+      throw new LoomError(`Unsupported field type [${input}].`);
+  }
+}
+
+function validateFieldConstraints(name: string, typeRaw: string, constraints: Record<string, string>) {
+  const allowed = new Set(["min", "max", "minLength", "maxLength", "minItems", "maxItems"]);
+
+  for (const [key, value] of Object.entries(constraints)) {
+    if (!allowed.has(key)) {
+      throw new LoomError(`Unsupported constraint [${key}] on field [${name}].`);
+    }
+
+    if (!/^-?\d+(\.\d+)?$/.test(value)) {
+      throw new LoomError(`Constraint [${key}] on field [${name}] must be numeric.`);
+    }
+  }
+
+  const min = Number(constraints.minLength ?? constraints.min);
+  const max = Number(constraints.maxLength ?? constraints.max);
+
+  if (Number.isFinite(min) && Number.isFinite(max) && min > max) {
+    throw new LoomError(`Field [${name}] has min greater than max.`);
+  }
+
+  if ((constraints.minItems || constraints.maxItems) && !typeRaw.startsWith("array<")) {
+    throw new LoomError(`Field [${name}] uses item constraints but is not an array.`);
+  }
+}
+
+function ensureResourceIdField(fields: ResourceField[]) {
+  const idIndex = fields.findIndex((field) => field.name === "id");
+
+  if (idIndex === -1) {
+    return [
+      parseResourceField("id:uuid:readonly"),
+      ...fields
+    ];
+  }
+
+  return fields.map((field, index) => index === idIndex
+    ? { ...field, required: true, readonly: true }
+    : field);
+}
+
+function normalizeRoutePrefix(input: string) {
+  if (!input.startsWith("/") || /['"`\s]/.test(input)) {
+    throw new LoomError("Resource route prefix must start with / and cannot contain quotes or whitespace.");
+  }
+
+  return input.replace(/\/+$/, "") || "/";
+}
+
+function resourceSchemaTemplate(spec: ResourceSpec) {
+  const { pascalName } = spec.meta;
+
+  return `${LOOM_GENERATED_HEADER}import { t } from 'elysia';
+
+export const ${pascalName}Schema = t.Object({
+${schemaFieldLines(spec.fields, "base")}
+});
+
+export const Create${pascalName}Schema = t.Object({
+${schemaFieldLines(spec.createFields, "create")}
+});
+
+export const Update${pascalName}Schema = t.Object({
+${schemaFieldLines(spec.updateFields, "update")}
+});
+
+export const ${pascalName}ParamsSchema = t.Object({
+  id: ${fieldSchemaExpression(spec.idField, false)}
+});
+
+export const ${pascalName}ListSchema = t.Array(${pascalName}Schema);
+
+export const ${pascalName}DeleteSchema = t.Object({
+  ok: t.Boolean(),
+  id: ${fieldSchemaExpression(spec.idField, false)}
+});
+
+export type ${pascalName} = typeof ${pascalName}Schema.static;
+export type Create${pascalName}Input = typeof Create${pascalName}Schema.static;
+export type Update${pascalName}Input = typeof Update${pascalName}Schema.static;
+export type ${pascalName}Params = typeof ${pascalName}ParamsSchema.static;
+export type ${pascalName}DeleteResponse = typeof ${pascalName}DeleteSchema.static;
+`;
+}
+
+function schemaFieldLines(fields: ResourceField[], mode: "base" | "create" | "update") {
+  if (fields.length === 0) {
+    return "";
+  }
+
+  return fields
+    .map((field) => {
+      const optional = mode === "update" || !field.required;
+      return `  ${field.name}: ${fieldSchemaExpression(field, optional)}`;
+    })
+    .join(",\n");
+}
+
+function fieldSchemaExpression(field: ResourceField, optional: boolean) {
+  let expression = baseFieldSchemaExpression(field.type, field.constraints);
+
+  if (field.nullable) {
+    expression = `t.Union([${expression}, t.Null()])`;
+  }
+
+  return optional ? `t.Optional(${expression})` : expression;
+}
+
+function baseFieldSchemaExpression(type: ResourceFieldType, constraints: Record<string, string>): string {
+  switch (type.kind) {
+    case "string":
+      return typeBoxCall("String", typeOptions("string", constraints));
+
+    case "number":
+      return typeBoxCall("Number", typeOptions("number", constraints));
+
+    case "integer":
+      return typeBoxCall("Integer", typeOptions("number", constraints));
+
+    case "boolean":
+      return "t.Boolean()";
+
+    case "uuid":
+      return typeBoxCall("String", typeOptions("string", constraints, { format: "uuid" }));
+
+    case "email":
+      return typeBoxCall("String", typeOptions("string", constraints, { format: "email" }));
+
+    case "url":
+      return typeBoxCall("String", typeOptions("string", constraints, { format: "uri" }));
+
+    case "date":
+      return typeBoxCall("String", typeOptions("string", constraints, { format: "date-time" }));
+
+    case "json":
+      return "t.Unknown()";
+
+    case "enum":
+      return type.values.length === 1
+        ? `t.Literal('${escapeTsString(type.values[0])}')`
+        : `t.Union([${type.values.map((value) => `t.Literal('${escapeTsString(value)}')`).join(", ")}])`;
+
+    case "array":
+      return typeBoxCall("Array", undefined, baseFieldSchemaExpression(type.item, {}), typeOptions("array", constraints));
+  }
+}
+
+function typeBoxCall(name: string, options?: string, firstArg?: string, secondOptions?: string) {
+  if (firstArg && secondOptions) {
+    return `t.${name}(${firstArg}, ${secondOptions})`;
+  }
+
+  if (firstArg) {
+    return `t.${name}(${firstArg})`;
+  }
+
+  return options ? `t.${name}(${options})` : `t.${name}()`;
+}
+
+function typeOptions(
+  kind: "string" | "number" | "array",
+  constraints: Record<string, string>,
+  base: Record<string, string> = {}
+) {
+  const entries: string[] = [];
+
+  for (const [key, value] of Object.entries(base)) {
+    entries.push(`${key}: '${escapeTsString(value)}'`);
+  }
+
+  if (kind === "string") {
+    const minLength = constraints.minLength ?? constraints.min;
+    const maxLength = constraints.maxLength ?? constraints.max;
+
+    if (minLength) entries.push(`minLength: ${Number(minLength)}`);
+    if (maxLength) entries.push(`maxLength: ${Number(maxLength)}`);
+  }
+
+  if (kind === "number") {
+    if (constraints.min) entries.push(`minimum: ${Number(constraints.min)}`);
+    if (constraints.max) entries.push(`maximum: ${Number(constraints.max)}`);
+  }
+
+  if (kind === "array") {
+    if (constraints.minItems) entries.push(`minItems: ${Number(constraints.minItems)}`);
+    if (constraints.maxItems) entries.push(`maxItems: ${Number(constraints.maxItems)}`);
+  }
+
+  return entries.length > 0 ? `{ ${entries.join(", ")} }` : undefined;
+}
+
+function resourceServiceTemplate(spec: ResourceSpec) {
+  const { slug, pascalName } = spec.meta;
+  const storeName = `${camelName(pascalName)}Store`;
+  const fixtureName = `${camelName(pascalName)}Fixture`;
+
+  return `${LOOM_GENERATED_HEADER}import type {
+  Create${pascalName}Input,
+  ${pascalName},
+  ${pascalName}DeleteResponse,
+  ${pascalName}Params,
+  Update${pascalName}Input
+} from './${slug}.schema';
+
+const ${fixtureName}: ${pascalName} = ${objectLiteral(spec.fields)};
+
+const ${storeName}: ${pascalName}[] = [${fixtureName}];
+
+function next${pascalName}Id(): ${pascalName}["id"] {
+  return ${fixtureName}.id;
+}
+
+export const ${pascalName}Service = {
+  list(): ${pascalName}[] {
+    return ${storeName};
+  },
+
+  get(id: ${pascalName}Params["id"]): ${pascalName} {
+    return ${storeName}.find((item) => item.id === id) ?? ${fixtureName};
+  },
+
+  create(input: Create${pascalName}Input): ${pascalName} {
+    const next: ${pascalName} = {
+      ...${fixtureName},
+      ...input,
+      id: next${pascalName}Id()
+    };
+
+    ${storeName}.push(next);
+    return next;
+  },
+
+  update(id: ${pascalName}Params["id"], input: Update${pascalName}Input): ${pascalName} {
+    const next: ${pascalName} = {
+      ...this.get(id),
+      ...input,
+      id
+    };
+
+    return next;
+  },
+
+  remove(id: ${pascalName}Params["id"]): ${pascalName}DeleteResponse {
+    return {
+      ok: true,
+      id
+    };
+  }
+};
+`;
+}
+
+function resourceControllerTemplate(spec: ResourceSpec) {
+  const { slug, pascalName, controllerName } = spec.meta;
+
+  return `${LOOM_GENERATED_HEADER}import { Elysia } from 'elysia';
+import { ${pascalName}Service } from './${slug}.service';
+import {
+  Create${pascalName}Schema,
+  ${pascalName}DeleteSchema,
+  ${pascalName}ListSchema,
+  ${pascalName}ParamsSchema,
+  ${pascalName}Schema,
+  Update${pascalName}Schema
+} from './${slug}.schema';
+
+export const ${controllerName} = new Elysia({ prefix: '${spec.routePrefix}' })
+  .get('/', () => ${pascalName}Service.list(), {
+    response: ${pascalName}ListSchema,
+    detail: { summary: 'List ${slug}' }
+  })
+  .post('/', ({ body }) => ${pascalName}Service.create(body), {
+    body: Create${pascalName}Schema,
+    response: ${pascalName}Schema,
+    detail: { summary: 'Create ${slug}' }
+  })
+  .get('/:id', ({ params }) => ${pascalName}Service.get(params.id), {
+    params: ${pascalName}ParamsSchema,
+    response: ${pascalName}Schema,
+    detail: { summary: 'Get ${slug} by id' }
+  })
+  .patch('/:id', ({ params, body }) => ${pascalName}Service.update(params.id, body), {
+    params: ${pascalName}ParamsSchema,
+    body: Update${pascalName}Schema,
+    response: ${pascalName}Schema,
+    detail: { summary: 'Update ${slug} by id' }
+  })
+  .delete('/:id', ({ params }) => ${pascalName}Service.remove(params.id), {
+    params: ${pascalName}ParamsSchema,
+    response: ${pascalName}DeleteSchema,
+    detail: { summary: 'Delete ${slug} by id' }
+  });
+`;
+}
+
+function resourceTestTemplate(spec: ResourceSpec) {
+  const { slug, pascalName, controllerName } = spec.meta;
+  const createPayload = objectLiteral(spec.createFields);
+  const idValue = fieldFixtureValue(spec.idField);
+  const createAssertions = spec.createFields
+    .map((field) => `    expect(body.${field.name}).toEqual(createPayload.${field.name});`)
+    .join("\n");
+
+  return `${LOOM_GENERATED_HEADER}import { describe, expect, test } from "bun:test";
+import { ${controllerName} } from "../../src/modules/${slug}/${slug}.controller";
+import { ${pascalName}Service } from "../../src/modules/${slug}/${slug}.service";
+import type { Create${pascalName}Input } from "../../src/modules/${slug}/${slug}.schema";
+
+const createPayload: Create${pascalName}Input = ${createPayload};
+
+describe("${slug} resource", () => {
+  test("service creates typed resource payload", () => {
+    const created = ${pascalName}Service.create(createPayload);
+
+    expect(created.id).toBeDefined();
+${spec.createFields.map((field) => `    expect(created.${field.name}).toEqual(createPayload.${field.name});`).join("\n")}
+  });
+
+  test("GET ${spec.routePrefix} lists resources", async () => {
+    const response = await ${controllerName}.handle(
+      new Request("http://localhost${spec.routePrefix}")
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(Array.isArray(body)).toBe(true);
+  });
+
+  test("POST ${spec.routePrefix} validates body and returns resource", async () => {
+    const response = await ${controllerName}.handle(
+      new Request("http://localhost${spec.routePrefix}", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(createPayload)
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.id).toBeDefined();
+${createAssertions}
+  });
+
+  test("DELETE ${spec.routePrefix}/:id returns delete payload", async () => {
+    const response = await ${controllerName}.handle(
+      new Request("http://localhost${spec.routePrefix}/${trimLiteralQuotes(idValue)}", {
+        method: "DELETE"
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.ok).toBe(true);
+  });
+});
+`;
+}
+
+function objectLiteral(fields: ResourceField[]) {
+  if (fields.length === 0) {
+    return "{}";
+  }
+
+  return `{
+${fields.map((field) => `  ${field.name}: ${fieldFixtureValue(field)}`).join(",\n")}
+}`;
+}
+
+function fieldFixtureValue(field: ResourceField): string {
+  return fixtureForType(field.type, field.name, field.constraints);
+}
+
+function fixtureForType(type: ResourceFieldType, fieldName: string, constraints: Record<string, string>): string {
+  switch (type.kind) {
+    case "string":
+      return JSON.stringify(constrainedString(`Example ${titleName(fieldName)}`, constraints));
+
+    case "number":
+      return String(constrainedNumber(1.5, constraints));
+
+    case "integer":
+      return String(Math.trunc(constrainedNumber(1, constraints)));
+
+    case "boolean":
+      return "true";
+
+    case "uuid":
+      return JSON.stringify("00000000-0000-4000-8000-000000000000");
+
+    case "email":
+      return JSON.stringify(`${fieldName.toLowerCase()}@example.com`);
+
+    case "url":
+      return JSON.stringify(`https://example.com/${fieldName}`);
+
+    case "date":
+      return JSON.stringify("2026-01-01T00:00:00.000Z");
+
+    case "json":
+      return `{ value: "example" }`;
+
+    case "enum":
+      return JSON.stringify(type.values[0]);
+
+    case "array":
+      return `[${fixtureForType(type.item, fieldName, {})}]`;
+  }
+}
+
+function constrainedString(base: string, constraints: Record<string, string>) {
+  const min = Number(constraints.minLength ?? constraints.min);
+  const max = Number(constraints.maxLength ?? constraints.max);
+  let value = base;
+
+  if (Number.isFinite(max) && value.length > max) {
+    value = "x".repeat(Math.max(1, max));
+  }
+
+  if (Number.isFinite(min) && value.length < min) {
+    value = value.padEnd(min, "x");
+  }
+
+  return value;
+}
+
+function constrainedNumber(base: number, constraints: Record<string, string>) {
+  const min = Number(constraints.min);
+  const max = Number(constraints.max);
+  let value = base;
+
+  if (Number.isFinite(min) && value < min) {
+    value = min;
+  }
+
+  if (Number.isFinite(max) && value > max) {
+    value = max;
+  }
+
+  return value;
+}
+
+function trimLiteralQuotes(value: string) {
+  return value.replace(/^"|"$/g, "");
+}
+
+function titleName(name: string) {
+  return name
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function camelName(name: string) {
+  return `${name.charAt(0).toLowerCase()}${name.slice(1)}`;
+}
+
+function escapeTsString(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
 async function registerModule(meta: ModuleMeta, ctx: LoomContext) {
@@ -729,7 +1632,7 @@ async function createBrief(
     `Stack: ${runtime}/${framework}/${schema}/${pattern}`,
     "Read: brief first; then skeleton.md OR skeleton.json, not both.",
     "TDD: write/generate tests before behavior changes; strict doctor requires module tests.",
-    "CLI: g | route | test | s | s --json | brief | inspect | doctor | doctor --strict",
+    "CLI: make module | make resource --field | sync | check | routes | info | g | route | test | s | s --json | brief | inspect | doctor | doctor --strict",
     "",
     "Modules:"
   ];
