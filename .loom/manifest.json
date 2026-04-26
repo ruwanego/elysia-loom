@@ -1,9 +1,0 @@
-{
-  "runtime": "Bun",
-  "package": "elysia-loom",
-  "purpose": "CLI and installer for Loom target apps",
-  "targetFramework": "Elysia",
-  "targetSchema": "TypeBox",
-  "targetPattern": "CSS",
-  "fixtureRoot": "fixtures"
-}

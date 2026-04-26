@@ -12,7 +12,8 @@
     "templates/default"
   ],
   "scripts": {
-    "check": "bun test",
+    "check": "bun test && bun pm pack --dry-run",
+    "pack:check": "bun pm pack --dry-run",
     "test": "bun test",
     "loom": "bun run scripts/loom.ts",
     "loom:install": "bun run scripts/install-loom.ts",

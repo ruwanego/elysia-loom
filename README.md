@@ -36,8 +36,8 @@ This repository is the CLI package, not an Elysia app.
 scripts/               CLI and installer source
 templates/default/     files copied into target Elysia apps
 tests/                 package tests
-fixtures/              Elysia apps used only for verification
-.loom/                 package-agent context
+fixtures/              optional static golden Elysia apps
+.tmp/                  ignored generated target apps during e2e tests
 ```
 
 ## Development
@@ -46,5 +46,7 @@ fixtures/              Elysia apps used only for verification
 bun install
 bun run check
 ```
+
+`bun run check` runs the package tests, including generated target-app coverage, then verifies the publish package with `bun pm pack --dry-run`.
 
 Alpha note: breaking CLI and template changes are expected until the target conventions settle.
