@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "my-loom-app",
+      "name": "elysia-loom",
       "dependencies": {
         "elysia": "latest",
       },

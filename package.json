@@ -1,11 +1,28 @@
 {
-  "name": "my-loom-app",
+  "name": "elysia-loom",
   "version": "1.0.50",
+  "bin": {
+    "elysia-loom": "./scripts/install-loom.ts",
+    "create-loom": "./scripts/install-loom.ts",
+    "loom-install": "./scripts/install-loom.ts"
+  },
+  "files": [
+    ".github/workflows/loom.yml",
+    ".githooks/pre-push",
+    ".loom/AGENT.md",
+    ".loom/manifest.json",
+    "AGENT.md",
+    "AGENTS.md",
+    "scripts/install-loom.ts",
+    "scripts/loom.ts",
+    "tests/loom.test.ts"
+  ],
   "scripts": {
     "check": "bun loom doctor --strict && bun test",
     "test": "bun test",
     "dev": "bun run --watch src/index.ts",
     "loom": "bun run scripts/loom.ts",
+    "loom:install": "bun run scripts/install-loom.ts",
     "hooks:install": "git config core.hooksPath .githooks",
     "prepare": "bun run hooks:install"
   },

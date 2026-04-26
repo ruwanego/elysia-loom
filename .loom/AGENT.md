@@ -17,6 +17,8 @@
 - `bun loom s --json`: Refresh both `.loom/context/skeleton.md` and `.loom/context/skeleton.json`.
 - `bun loom doctor`: Audit anchors, registrations, CSS files, dependency drift, and skeleton freshness.
 - `bun loom doctor --strict`: Enforce TDD/module-test and state-management gates.
+- `bunx elysia-loom <target>`: Install Loom into another Bun/Elysia project from the package bin.
+- `bun run loom:install <target>`: Install Loom into another Bun/Elysia project.
 - `--dry-run` or `-n`: Preview supported write commands without changing files.
 
 ## TDD Gate
