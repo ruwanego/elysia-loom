@@ -16,7 +16,7 @@ import {
   BRIEF_PATH,
   moduleFiles,
   moduleTestPath
-} from "./constants";
+} from "../lib/constants";
 import {
   createBrief,
   createSkeletonOutput,
@@ -33,10 +33,10 @@ import {
   readTextIfExists,
   runChildCommand,
   scanTs
-} from "./fs";
-import { escapeRegExp, fullRoutePath, normalizeModuleName } from "./utils";
-import type { LoomContext, SkeletonContext } from "./types";
-import { ANCHORS, createContext } from "./types";
+} from "../lib/fs";
+import { escapeRegExp, fullRoutePath, normalizeModuleName } from "../lib/utils";
+import type { LoomContext, SkeletonContext } from "../lib/types";
+import { ANCHORS, createContext } from "../lib/types";
 
 export async function runDoctor(ctx: LoomContext = createContext(), strict = false) {
   const issues: string[] = [];
@@ -90,7 +90,7 @@ export async function runDoctor(ctx: LoomContext = createContext(), strict = fal
   auditManifest(manifest, pkg, issues, warnings);
   await auditSkeletonFreshness(ctx, issues);
 
-  const { auditCoreArtifacts } = await import("./core");
+  const { auditCoreArtifacts } = await import("../generators/core");
   await auditCoreArtifacts(ctx, issues);
 
   if (strict) {

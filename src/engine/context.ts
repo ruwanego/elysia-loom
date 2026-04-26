@@ -12,7 +12,7 @@ import {
   SKELETON_MD_PATH,
   moduleFiles,
   moduleTestPath
-} from "./constants";
+} from "../lib/constants";
 import {
   listModuleNames,
   pathExists,
@@ -21,8 +21,8 @@ import {
   readTextIfExists,
   scanProjectFiles,
   writeText
-} from "./fs";
-import { normalizeSlash, normalizeModuleName } from "./utils";
+} from "../lib/fs";
+import { normalizeSlash, normalizeModuleName } from "../lib/utils";
 import type {
   ControllerImport,
   LoomContext,
@@ -30,8 +30,8 @@ import type {
   SkeletonContext,
   SkeletonFile,
   SkeletonModule
-} from "./types";
-import { ANCHORS, createContext } from "./types";
+} from "../lib/types";
+import { ANCHORS, createContext } from "../lib/types";
 
 export async function syncContext(ctx: LoomContext = createContext()) {
   await refreshSkeleton({ ...ctx, emitJson: true });

@@ -3,9 +3,9 @@
  * Agent-centric module generator and skeleton mapper for Bun/Elysia.
  */
 
-export { ANCHORS, createContext } from "./types";
-export type { LoomContext, ModuleMeta } from "./types";
-export { normalizeModuleName } from "./utils";
+export { ANCHORS, createContext } from "./lib/types";
+export type { LoomContext, ModuleMeta } from "./lib/types";
+export { normalizeModuleName } from "./lib/utils";
 export {
   generateModule,
   generateResource,
@@ -13,26 +13,26 @@ export {
   addRoute,
   generateModuleTest,
   inspectModule
-} from "./modules";
+} from "./generators/modules";
 export {
   generateCoreArtifact,
   removeCoreArtifact,
   initSwagger,
   listCoreArtifacts
-} from "./core";
-export type { CoreArtifactKind } from "./core-templates";
+} from "./generators/core";
+export type { CoreArtifactKind } from "./generators/core-templates";
 export {
   syncContext,
   refreshSkeleton,
   refreshBrief,
   createSkeleton
-} from "./context";
+} from "./engine/context";
 export {
   runDoctor,
   runCheck,
   printRoutes,
   printInfo
-} from "./doctor";
+} from "./engine/doctor";
 export { runLoom } from "./cli";
 
 import { runLoom } from "./cli";

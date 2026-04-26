@@ -10,13 +10,13 @@ import {
   moduleDir,
   moduleFiles,
   moduleTestPath
-} from "./constants";
+} from "../lib/constants";
 import {
   createSkeletonOutput,
   extractPrefix,
   refreshBrief,
   refreshSkeleton
-} from "./context";
+} from "../engine/context";
 import {
   listModuleNames,
   makeDir,
@@ -26,7 +26,7 @@ import {
   removePath,
   scanTs,
   writeText
-} from "./fs";
+} from "../lib/fs";
 import {
   createResourceSpec,
   resourceControllerTemplate,
@@ -40,13 +40,13 @@ import {
   schemaTemplate,
   serviceTemplate
 } from "./templates";
-import { escapeRegExp, normalizeModuleName, pascalFromPath } from "./utils";
+import { escapeRegExp, normalizeModuleName, pascalFromPath } from "../lib/utils";
 import type {
   LoomContext,
   ModuleMeta,
   ResourceGenerationOptions
-} from "./types";
-import { ANCHORS, LoomError, createContext } from "./types";
+} from "../lib/types";
+import { ANCHORS, LoomError, createContext } from "../lib/types";
 
 export async function generateModule(meta: ModuleMeta, ctx: LoomContext = createContext()) {
   await assertCanGenerate(meta, ctx);

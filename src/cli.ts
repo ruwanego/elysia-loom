@@ -3,25 +3,25 @@
  * Argument parsing, command dispatch, and help output.
  */
 
-import { VERSION } from "./constants";
-import { generateCoreArtifact, initSwagger, removeCoreArtifact } from "./core";
-import type { CoreArtifactKind } from "./core-templates";
-import { syncContext } from "./context";
-import { printInfo, printRoutes, runCheck, runDoctor } from "./doctor";
-import { runChildCommand } from "./fs";
+import { VERSION } from "./lib/constants";
+import { generateCoreArtifact, initSwagger, removeCoreArtifact } from "./generators/core";
+import type { CoreArtifactKind } from "./generators/core-templates";
+import { syncContext } from "./engine/context";
+import { printInfo, printRoutes, runCheck, runDoctor } from "./engine/doctor";
+import { runChildCommand } from "./lib/fs";
 import {
   addRoute,
   generateModule,
   generateModuleTest,
-  generateResource,
   inspectModule,
   removeModule
-} from "./modules";
-import { createResourceSpec } from "./resource";
-import { refreshBrief, refreshSkeleton } from "./context";
-import { normalizeModuleName } from "./utils";
-import type { LoomContext, ModuleMeta, ParsedArgs } from "./types";
-import { LoomError, createContext } from "./types";
+} from "./generators/modules";
+import { generateResource } from "./generators/modules";
+import { createResourceSpec } from "./generators/resource";
+import { refreshBrief, refreshSkeleton } from "./engine/context";
+import { normalizeModuleName } from "./lib/utils";
+import type { LoomContext, ModuleMeta, ParsedArgs } from "./lib/types";
+import { LoomError, createContext } from "./lib/types";
 
 const CORE_ARTIFACT_KINDS = new Set<string>(["guard", "middleware", "hook", "plugin"]);
 

@@ -4,13 +4,13 @@
  */
 
 import { Glob } from "bun";
-import { LOOM_GENERATED_MARKER, LOOM_GENERATED_HEADER, PACKAGE_PATH } from "./constants";
+import { LOOM_GENERATED_MARKER, LOOM_GENERATED_HEADER, PACKAGE_PATH } from "../lib/constants";
 import { CORE_TEMPLATE_MAP, type CoreArtifactKind } from "./core-templates";
-import { refreshSkeleton } from "./context";
-import { makeDir, pathExists, readJsonIfExists, readText, readTextIfExists, removePath, writeText } from "./fs";
-import { normalizeModuleName, normalizeSlash } from "./utils";
-import type { LoomContext, ModuleMeta } from "./types";
-import { ANCHORS, LoomError, createContext } from "./types";
+import { refreshSkeleton } from "../engine/context";
+import { makeDir, pathExists, readJsonIfExists, readText, readTextIfExists, removePath, writeText } from "../lib/fs";
+import { normalizeModuleName, normalizeSlash } from "../lib/utils";
+import type { LoomContext, ModuleMeta } from "../lib/types";
+import { ANCHORS, LoomError, createContext } from "../lib/types";
 
 const CORE_PATH = "src/core";
 

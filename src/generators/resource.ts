@@ -3,8 +3,8 @@
  * Resource field parsing, spec creation, and resource-specific templates.
  */
 
-import { LOOM_GENERATED_HEADER } from "./constants";
-import { readTextIfExists } from "./fs";
+import { LOOM_GENERATED_HEADER } from "../lib/constants";
+import { readTextIfExists } from "../lib/fs";
 import type {
   LoomContext,
   ModuleMeta,
@@ -13,9 +13,9 @@ import type {
   ResourceGenerationOptions,
   ResourceSpec,
   ResourceSpecFile
-} from "./types";
-import { LoomError, createContext } from "./types";
-import { camelName, escapeTsString, normalizeModuleName, titleName, trimLiteralQuotes } from "./utils";
+} from "../lib/types";
+import { LoomError, createContext } from "../lib/types";
+import { camelName, escapeTsString, normalizeModuleName, titleName, trimLiteralQuotes } from "../lib/utils";
 
 export async function createResourceSpec(
   meta: ModuleMeta,

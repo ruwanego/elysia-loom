@@ -4,8 +4,8 @@
  * All templates generate idiomatic Elysia plugins using native lifecycle hooks.
  */
 
-import { LOOM_GENERATED_HEADER } from "./constants";
-import type { ModuleMeta } from "./types";
+import { LOOM_GENERATED_HEADER } from "../lib/constants";
+import type { ModuleMeta } from "../lib/types";
 
 export type CoreArtifactKind = "guard" | "middleware" | "hook" | "plugin";
 

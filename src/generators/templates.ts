@@ -3,8 +3,8 @@
  * Module CSS scaffold templates (schema, service, controller, test).
  */
 
-import { LOOM_GENERATED_HEADER } from "./constants";
-import type { ModuleMeta } from "./types";
+import { LOOM_GENERATED_HEADER } from "../lib/constants";
+import type { ModuleMeta } from "../lib/types";
 
 export function schemaTemplate({ pascalName }: ModuleMeta) {
   return `${LOOM_GENERATED_HEADER}import { t } from 'elysia';
