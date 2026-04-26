@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-26T09:56:29.093Z",
+  "generatedAt": "2026-04-26T11:49:06.779Z",
   "anchors": {
     "import": "// [LOOM_IMPORT_ANCHOR]",
     "module": "// [LOOM_MODULE_ANCHOR]"
@@ -26,6 +26,7 @@
           "method": "get",
           "path": "/",
           "response": "HealthSchema",
+          "detail": "{ summary: 'Get health status' }",
           "summary": "Get health status"
         }
       ]
@@ -70,6 +71,7 @@
           "method": "get",
           "path": "/",
           "response": "HealthSchema",
+          "detail": "{ summary: 'Get health status' }",
           "summary": "Get health status"
         }
       ],

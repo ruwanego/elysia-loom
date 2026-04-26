@@ -77,9 +77,8 @@ describe("loom cli", () => {
 
     const skeletonMarkdown = await readFile(join(root, ".loom", "context", "skeleton.md"), "utf8");
     expect(skeletonMarkdown).toContain("response: InitTestSchema,");
-
-    const skeletonJson = await readFile(join(root, ".loom", "context", "skeleton.json"), "utf8");
-    expect(JSON.parse(skeletonJson).modules[0].routes).toHaveLength(2);
+    expect(skeletonMarkdown).toContain("detail: { summary:");
+    await expect(readFile(join(root, ".loom", "context", "skeleton.json"), "utf8")).rejects.toThrow();
 
     expect(await runLoom(["r", "init-test"], ctx)).toBe(0);
 
@@ -96,6 +95,22 @@ describe("loom cli", () => {
     const index = await readFile(join(root, "src", "index.ts"), "utf8");
     expect(index).not.toContain("dryTestController");
     await expect(readFile(join(root, "src", "modules", "dry-test", "dry-test.controller.ts"), "utf8")).rejects.toThrow();
+  });
+
+  test("json flag writes markdown and json skeletons", async () => {
+    const ctx = silentContext();
+
+    expect(await runLoom(["g", "json-test"], ctx)).toBe(0);
+    await expect(readFile(join(root, ".loom", "context", "skeleton.json"), "utf8")).rejects.toThrow();
+
+    expect(await runLoom(["s", "--json"], ctx)).toBe(0);
+
+    const skeletonMarkdown = await readFile(join(root, ".loom", "context", "skeleton.md"), "utf8");
+    const skeletonJson = JSON.parse(await readFile(join(root, ".loom", "context", "skeleton.json"), "utf8"));
+
+    expect(skeletonMarkdown).toContain("jsonTestController");
+    expect(skeletonJson.modules[0].name).toBe("json-test");
+    expect(await runLoom(["doctor"], ctx)).toBe(0);
   });
 
   test("rejects module name collisions", async () => {

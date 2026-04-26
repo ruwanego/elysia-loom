@@ -2,9 +2,12 @@
   "name": "my-loom-app",
   "version": "1.0.50",
   "scripts": {
+    "check": "bun loom doctor && bun test",
     "test": "bun test",
     "dev": "bun run --watch src/index.ts",
-    "loom": "bun run scripts/loom.ts"
+    "loom": "bun run scripts/loom.ts",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "prepare": "bun run hooks:install"
   },
   "dependencies": {
     "elysia": "latest"

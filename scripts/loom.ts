@@ -31,6 +31,7 @@ export type ModuleMeta = {
 export type LoomContext = {
   root: string;
   dryRun: boolean;
+  emitJson: boolean;
   log: (message: string) => void;
   error: (message: string) => void;
 };
@@ -39,6 +40,7 @@ type ParsedArgs = {
   command: string;
   args: string[];
   dryRun: boolean;
+  emitJson: boolean;
 };
 
 type ControllerImport = {
@@ -55,6 +57,7 @@ type RouteSignature = {
   query?: string;
   params?: string;
   headers?: string;
+  detail?: string;
   summary?: string;
 };
 
@@ -87,17 +90,13 @@ type SkeletonContext = {
   files: SkeletonFile[];
 };
 
-type SkeletonOutput = {
-  markdown: string;
-  json: SkeletonContext;
-};
-
 class LoomError extends Error {}
 
 export function createContext(options: Partial<LoomContext> = {}): LoomContext {
   return {
     root: options.root ?? ".",
     dryRun: options.dryRun ?? false,
+    emitJson: options.emitJson ?? false,
     log: options.log ?? console.log,
     error: options.error ?? console.error
   };
@@ -107,7 +106,8 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
   const parsed = parseArgs(argv);
   const ctx = createContext({
     ...options,
-    dryRun: Boolean(options.dryRun) || parsed.dryRun
+    dryRun: Boolean(options.dryRun) || parsed.dryRun,
+    emitJson: Boolean(options.emitJson) || parsed.emitJson
   });
 
   try {
@@ -152,13 +152,16 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
 
 function parseArgs(argv: string[]): ParsedArgs {
   const dryRunFlags = new Set(["--dry-run", "-n"]);
+  const jsonFlags = new Set(["--json", "--with-json"]);
   const dryRun = argv.some((arg) => dryRunFlags.has(arg));
-  const positional = argv.filter((arg) => !dryRunFlags.has(arg));
+  const emitJson = argv.some((arg) => jsonFlags.has(arg));
+  const positional = argv.filter((arg) => !dryRunFlags.has(arg) && !jsonFlags.has(arg));
 
   return {
     command: positional[0] ?? "help",
     args: positional.slice(1),
-    dryRun
+    dryRun,
+    emitJson
   };
 }
 
@@ -171,12 +174,13 @@ Commands:
   g, generate <name>        Create a CSS module and auto-register it
   r, remove <name>          Remove a generated module and registration
   route <mod> <method> <p>  Add a service-backed route to a module
-  s, skeleton               Refresh Markdown and JSON context maps
+  s, skeleton               Refresh the Markdown context map
   doctor                    Audit Loom drift and registration health
   help                      Show this menu
 
 Flags:
   --dry-run, -n             Print planned writes without changing files
+  --json, --with-json       Write both skeleton.md and skeleton.json
 `);
 }
 
@@ -488,16 +492,28 @@ function pascalFromPath(routePath: string) {
 }
 
 export async function refreshSkeleton(ctx = createContext()) {
-  const output = await createSkeleton(ctx);
+  const output = await createSkeletonOutput(ctx);
+  const emitJson = ctx.emitJson || await pathExists(ctx, SKELETON_JSON_PATH);
 
   await writeText(ctx, SKELETON_MD_PATH, output.markdown);
-  await writeText(ctx, SKELETON_JSON_PATH, `${JSON.stringify(output.json, null, 2)}\n`);
 
-  ctx.log(`Skeleton maps ${ctx.dryRun ? "planned" : "updated"} in .loom/context`);
+  if (emitJson) {
+    await writeText(ctx, SKELETON_JSON_PATH, `${JSON.stringify(output.json, null, 2)}\n`);
+  }
+
+  const paths = emitJson
+    ? `${SKELETON_MD_PATH} and ${SKELETON_JSON_PATH}`
+    : SKELETON_MD_PATH;
+
+  ctx.log(`Skeleton map ${ctx.dryRun ? "planned" : "updated"} in ${paths}`);
 }
 
-export async function createSkeleton(ctx = createContext(), generatedAt = new Date().toISOString()): Promise<SkeletonOutput> {
-  const paths = await scanTs(ctx, "src/**/*.ts");
+export async function createSkeleton(ctx = createContext(), generatedAt = new Date().toISOString()) {
+  return (await createSkeletonOutput(ctx, generatedAt)).markdown;
+}
+
+async function createSkeletonOutput(ctx = createContext(), generatedAt = new Date().toISOString()) {
+  const paths = await scanProjectFiles(ctx);
   const entry = await readTextIfExists(ctx, ENTRY_PATH);
   const registrations = entry ? parseControllerImports(entry) : [];
   const registeredNames = new Set(registrations.map((registration) => registration.moduleName));
@@ -513,16 +529,15 @@ export async function createSkeleton(ctx = createContext(), generatedAt = new Da
       continue;
     }
 
-    const file: SkeletonFile = {
+    files.push({
       path,
       imports: skeleton.filter((line) => line.startsWith("import ")),
       exports: skeleton.filter((line) => line.startsWith("export ")),
       routes: extractRoutes(content),
       uses: extractUses(content),
       skeleton
-    };
+    });
 
-    files.push(file);
     markdown += `### File: ${path}\n\`\`\`typescript\n${skeleton.join("\n")}\n\`\`\`\n\n`;
   }
 
@@ -668,7 +683,9 @@ function summarizeRouteBlock(block: string[]) {
     }
   }
 
-  if (route.summary) {
+  if (route.detail) {
+    optionLines.push(`  detail: ${route.detail}`);
+  } else if (route.summary) {
     optionLines.push(`  detail: { summary: '${route.summary}' }`);
   }
 
@@ -699,6 +716,7 @@ function parseRouteBlock(block: string[]): RouteSignature | undefined {
     params: extractRouteOption(text, "params"),
     headers: extractRouteOption(text, "headers"),
     response: extractRouteOption(text, "response"),
+    detail: extractObjectOption(text, "detail"),
     summary: extractSummary(text)
   };
 }
@@ -708,13 +726,18 @@ function extractRouteOption(text: string, key: string) {
   return match?.[1]?.trim();
 }
 
+function extractObjectOption(text: string, key: string) {
+  const match = text.match(new RegExp(`${key}:\\s*(\\{.*?\\})\\s*[,}]`));
+  return match?.[1]?.trim();
+}
+
 function extractSummary(text: string) {
   const match = text.match(/summary:\s*['"`]([^'"`]+)['"`]/);
   return match?.[1];
 }
 
 function hasRouteOptions(route: RouteSignature) {
-  return Boolean(route.body || route.query || route.params || route.headers || route.response || route.summary);
+  return Boolean(route.body || route.query || route.params || route.headers || route.response || route.detail || route.summary);
 }
 
 function extractRoutes(content: string) {
@@ -964,7 +987,7 @@ function auditManifest(
 }
 
 async function auditSkeletonFreshness(ctx: LoomContext, issues: string[]) {
-  const expected = await createSkeleton(ctx, "<ignored>");
+  const expected = await createSkeletonOutput(ctx, "<ignored>");
   const actualMarkdown = await readTextIfExists(ctx, SKELETON_MD_PATH);
   const actualJson = await readJsonIfExists<SkeletonContext>(ctx, SKELETON_JSON_PATH);
 
@@ -974,13 +997,11 @@ async function auditSkeletonFreshness(ctx: LoomContext, issues: string[]) {
     issues.push(`${SKELETON_MD_PATH} is stale. Run bun loom s.`);
   }
 
-  if (!actualJson) {
-    issues.push(`${SKELETON_JSON_PATH} is missing. Run bun loom s.`);
-  } else {
-    const normalizedActual = { ...actualJson, generatedAt: "<ignored>" };
+  if (actualJson) {
+    const normalizedJson = { ...actualJson, generatedAt: "<ignored>" };
 
-    if (JSON.stringify(normalizedActual) !== JSON.stringify(expected.json)) {
-      issues.push(`${SKELETON_JSON_PATH} is stale. Run bun loom s.`);
+    if (JSON.stringify(normalizedJson) !== JSON.stringify(expected.json)) {
+      issues.push(`${SKELETON_JSON_PATH} is stale. Run bun loom s --json.`);
     }
   }
 }
@@ -991,7 +1012,9 @@ function normalizeGeneratedMarkdown(markdown: string) {
 
 async function syncAfterMutation(ctx: LoomContext) {
   if (ctx.dryRun) {
-    ctx.log("[dry-run] refresh .loom/context/skeleton.md and .loom/context/skeleton.json");
+    ctx.log(ctx.emitJson
+      ? "[dry-run] refresh .loom/context/skeleton.md and .loom/context/skeleton.json"
+      : "[dry-run] refresh .loom/context/skeleton.md");
     return;
   }
 
@@ -1051,6 +1074,19 @@ async function scanTs(ctx: LoomContext, pattern: string) {
   const paths: string[] = [];
 
   for await (const path of glob.scan(ctx.root)) {
+    paths.push(normalizeSlash(path));
+  }
+
+  return paths.sort();
+}
+
+async function scanProjectFiles(ctx: LoomContext) {
+  const paths: string[] = [];
+  const scanner = ctx.root === "."
+    ? new Glob("src/**/*.ts").scan(".")
+    : new Glob("src/**/*.ts").scan(ctx.root);
+
+  for await (const path of scanner) {
     paths.push(normalizeSlash(path));
   }
 
