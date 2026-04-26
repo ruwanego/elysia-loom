@@ -80,7 +80,7 @@ export async function readResourceSpecFile(ctx: LoomContext, path: string): Prom
   }
 }
 
-export function parseResourceSpecField(field: ResourceSpecFile["fields"] extends Array<infer T> ? T : never) {
+export function parseResourceSpecField(field: NonNullable<ResourceSpecFile["fields"]> extends Array<infer T> ? T : never) {
   if (typeof field === "string") {
     return parseResourceField(field);
   }
