@@ -44,11 +44,12 @@ describe("loom installer", () => {
     const installer = await readFile(join(import.meta.dir, "..", "scripts", "install-loom.ts"), "utf8");
 
     expect(pkg.name).toBe("elysia-loom");
+    expect(pkg.version).toContain("alpha");
     expect(pkg.bin["elysia-loom"]).toBe("./scripts/install-loom.ts");
     expect(pkg.bin["create-loom"]).toBe("./scripts/install-loom.ts");
     expect(pkg.bin["loom-install"]).toBe("./scripts/install-loom.ts");
     expect(pkg.files).toContain("scripts/install-loom.ts");
-    expect(pkg.files).toContain(".loom/AGENT.md");
+    expect(pkg.files).toContain("templates/default");
     expect(installer.startsWith("#!/usr/bin/env bun")).toBe(true);
   });
 
@@ -69,9 +70,11 @@ describe("loom installer", () => {
     expect(index).toContain("// [LOOM_MODULE_ANCHOR]");
     expect(await readFile(join(root, "scripts", "loom.ts"), "utf8")).toContain("LOOM CLI");
     expect(await readFile(join(root, ".loom", "AGENT.md"), "utf8")).toContain("Optimized Loom Protocol");
+    expect(await readFile(join(root, ".loom", "manifest.json"), "utf8")).toContain("\"framework\": \"Elysia\"");
     expect(await readFile(join(root, "AGENTS.md"), "utf8")).toContain("Agent Bootstrap");
     expect(await readFile(join(root, ".github", "workflows", "loom.yml"), "utf8")).toContain("bun loom check");
     expect(await readFile(join(root, ".githooks", "pre-push"), "utf8")).toContain("bun loom check");
+    await expect(readFile(join(root, "tests", "loom.test.ts"), "utf8")).rejects.toThrow();
   });
 
   test("refuses to overwrite existing Loom files without force", async () => {
@@ -83,5 +86,20 @@ describe("loom installer", () => {
       runCommands: false,
       log: () => undefined
     })).rejects.toThrow("Refusing to overwrite");
+  });
+
+  test("runs canonical sync and check during install", async () => {
+    const logs: string[] = [];
+
+    await installLoom({
+      target: root,
+      runCommands: true,
+      health: false,
+      log: (message) => logs.push(message)
+    });
+
+    expect(logs.join("\n")).toContain("> bun loom sync");
+    expect(logs.join("\n")).toContain("> bun loom check");
+    expect(await readFile(join(root, ".loom", "context", "skeleton.json"), "utf8")).toContain("generatedAt");
   });
 });

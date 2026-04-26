@@ -36,6 +36,8 @@ beforeEach(async () => {
 
 - bun loom make module <name>
 - bun loom make resource <name> --field <name:type>
+- bun loom plan resource <name>
+- bun loom validate resource <name>
 - bun loom sync
 - bun loom check
 - bun loom routes
@@ -191,20 +193,63 @@ describe("loom cli", () => {
     expect(schema).toContain("export const UsersSchema = t.Object");
     expect(schema).toContain("export const CreateUsersSchema = t.Object");
     expect(schema).toContain("export const UpdateUsersSchema = t.Object");
+    expect(schema).toContain("export const UsersErrorSchema = t.Object");
     expect(schema).toContain("email: t.String({ format: 'email' })");
     expect(schema).toContain("age: t.Optional(t.Integer({ minimum: 0 }))");
     expect(schema).toContain("role: t.Union([t.Literal('admin'), t.Literal('user')])");
     expect(service).toContain("list(): Users[]");
+    expect(service).toContain("return [...usersStore]");
+    expect(service).toContain("crypto.randomUUID() as Users[\"id\"]");
     expect(service).toContain("create(input: CreateUsersInput): Users");
-    expect(service).toContain("update(id: UsersParams[\"id\"], input: UpdateUsersInput): Users");
+    expect(service).toContain("update(id: UsersParams[\"id\"], input: UpdateUsersInput): Users | undefined");
+    expect(service).toContain("usersStore[index] = next");
+    expect(service).toContain("usersStore.splice(index, 1)");
     expect(controller).toContain("new Elysia({ prefix: '/users' })");
     expect(controller).toContain(".post('/'");
     expect(controller).toContain("body: CreateUsersSchema");
+    expect(controller).toContain("status(404, { error: 'Users not found' })");
     expect(controller).toContain(".delete('/:id'");
     expect(generatedTest).toContain("const createPayload: CreateUsersInput");
     expect(generatedTest).toContain("POST /users validates body");
     expect(index).toContain("usersController");
     expect(await runLoom(["doctor", "--strict"], ctx)).toBe(0);
+  });
+
+  test("plans and validates resources from spec files", async () => {
+    await mkdir(join(root, ".loom", "specs"), { recursive: true });
+    await writeFile(
+      join(root, ".loom", "specs", "posts.resource.json"),
+      JSON.stringify({
+        route: "/posts",
+        fields: [
+          "title:string:required:min=2",
+          { name: "published", type: "boolean", optional: true }
+        ]
+      }, null, 2)
+    );
+
+    const validateLogs: string[] = [];
+    expect(await runLoom(["validate", "resource", "posts", "--from", ".loom/specs/posts.resource.json"], {
+      root,
+      log: (message) => validateLogs.push(message),
+      error: () => undefined
+    })).toBe(0);
+    expect(validateLogs.join("\n")).toContain("Resource spec valid: posts");
+    expect(validateLogs.join("\n")).toContain("Fields: id, title, published");
+
+    const planLogs: string[] = [];
+    expect(await runLoom(["plan", "resource", "posts", "--from", ".loom/specs/posts.resource.json"], {
+      root,
+      log: (message) => planLogs.push(message),
+      error: () => undefined
+    })).toBe(0);
+    expect(planLogs.join("\n")).toContain("[dry-run] write src/modules/posts/posts.schema.ts");
+    await expect(readFile(join(root, "src", "modules", "posts", "posts.schema.ts"), "utf8")).rejects.toThrow();
+
+    expect(await runLoom(["make", "resource", "posts", "--from", ".loom/specs/posts.resource.json"], silentContext())).toBe(0);
+    const schema = await readFile(join(root, "src", "modules", "posts", "posts.schema.ts"), "utf8");
+    expect(schema).toContain("title: t.String({ minLength: 2 })");
+    expect(schema).toContain("published: t.Optional(t.Boolean())");
   });
 
   test("supports alpha target commands", async () => {
@@ -253,6 +298,19 @@ describe("loom cli", () => {
       error: () => undefined
     })).toBe(0);
     expect(listLogs.join("\n")).toContain("make resource <name>");
+  });
+
+  test("check skips bun test when target has no test files", async () => {
+    const logs: string[] = [];
+
+    expect(await runLoom(["sync"], silentContext())).toBe(0);
+    expect(await runLoom(["check"], {
+      root,
+      log: (message) => logs.push(message),
+      error: () => undefined
+    })).toBe(0);
+    expect(logs.join("\n")).toContain("Loom doctor --strict passed.");
+    expect(logs.join("\n")).toContain("No Bun tests found; skipping bun test.");
   });
 });
 

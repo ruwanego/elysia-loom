@@ -1,30 +1,18 @@
 # Agent Bootstrap
 
-This project uses Loom. Root instructions are bootstrap only; the canonical protocol lives in `.loom/AGENT.md`.
+This repository builds `elysia-loom`, the Loom CLI/installer package. It is not a live Elysia app.
 
 Before any task:
 
 1. Read `.loom/AGENT.md`.
 2. Read `.loom/context/brief.md`.
-3. Read `.loom/context/skeleton.md` OR `.loom/context/skeleton.json`, not both, unless the task needs both.
-4. Map the plan from context before opening full source files.
+3. Inspect only the specific CLI, installer, template, or fixture files needed.
 
-Loom rules that must not be missed:
+Rules that must not be missed:
 
-- Create modules with `bun loom make module <name>` or `bun loom g <name>`.
-- Create typed CRUD resources with `bun loom make resource <name> --field <name:type>`.
-- Refresh context with `bun loom sync`.
-- Verify handoff with `bun loom check`.
-- List routes with `bun loom routes`.
-- Inspect project state with `bun loom info`.
-- Add module routes with `bun loom route <module> <method> <path>`.
-- Generate module tests with `bun loom test <module>`.
-- Inspect one module with `bun loom inspect <module>`.
-- Install Loom into another app from the package bin with `bunx elysia-loom <target>`.
-- Install Loom into another app with `bun run loom:install <target>`.
-- Do not manually edit Loom-managed `src/index.ts` wiring.
-- Keep routes in `.controller.ts`, logic in `.service.ts`, and TypeBox schemas in `.schema.ts`.
-- For behavior changes, write or generate tests before implementation.
-- Run `bun loom s` after signature or schema changes.
-- Run `bun loom s --json` when the structured context file should exist or be refreshed.
-- Run `bun loom check` before handing work back.
+- Do not create root `src/modules/*` app modules.
+- Put target-app template files in `templates/default/`.
+- Put Elysia app examples and runtime checks in `fixtures/`.
+- Keep CLI product logic in `scripts/loom.ts`.
+- Keep installer/package bootstrap logic in `scripts/install-loom.ts`.
+- Run `bun run check` before handing work back.

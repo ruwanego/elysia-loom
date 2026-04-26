@@ -26,6 +26,8 @@ const FORBIDDEN_PACKAGES = ["zod", "express"];
 const EXPECTED_PROTOCOL_COMMANDS = [
   "bun loom make module <name>",
   "bun loom make resource <name> --field <name:type>",
+  "bun loom plan resource <name>",
+  "bun loom validate resource <name>",
   "bun loom sync",
   "bun loom check",
   "bun loom routes",
@@ -67,6 +69,7 @@ type ParsedArgs = {
   emitJson: boolean;
   strict: boolean;
   fields: string[];
+  from?: string;
   route?: string;
   plural?: string;
   test: boolean;
@@ -151,6 +154,29 @@ type ResourceSpec = {
   updateFields: ResourceField[];
 };
 
+type ResourceGenerationOptions = {
+  fields: string[];
+  route?: string;
+  plural?: string;
+  from?: string;
+  generateTest: boolean;
+};
+
+type ResourceSpecFile = {
+  route?: string;
+  plural?: string;
+  fields?: Array<string | {
+    name: string;
+    type: string;
+    required?: boolean;
+    optional?: boolean;
+    readonly?: boolean;
+    nullable?: boolean;
+    constraints?: Record<string, string | number>;
+  }>;
+  test?: boolean;
+};
+
 class LoomError extends Error {}
 
 export function createContext(options: Partial<LoomContext> = {}): LoomContext {
@@ -197,6 +223,13 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
       case "test":
         await requireModuleName(parsed.args[0], (meta) => generateModuleTest(meta, ctx));
         return 0;
+
+      case "plan":
+        await runPlanCommand(parsed, ctx);
+        return 0;
+
+      case "validate":
+        return await runValidateCommand(parsed, ctx);
 
       case "sync":
         await syncContext(ctx);
@@ -259,6 +292,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   let dryRun = false;
   let emitJson = false;
   let strict = false;
+  let from: string | undefined;
   let route: string | undefined;
   let plural: string | undefined;
   let test = false;
@@ -294,6 +328,12 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
+    if (arg === "--from") {
+      from = readFlagValue(argv, index, arg);
+      index += 1;
+      continue;
+    }
+
     if (arg === "--plural") {
       plural = readFlagValue(argv, index, arg);
       index += 1;
@@ -320,6 +360,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     emitJson,
     strict,
     fields,
+    from,
     route,
     plural,
     test,
@@ -351,6 +392,8 @@ Commands:
   test <module>             Generate Bun tests for a CSS module
   sync                      Refresh brief, skeleton.md, and skeleton.json
   check                     Run strict doctor and bun test
+  plan <kind> <name>        Preview generated files without writing
+  validate [kind] [name]    Validate project or resource specs
   routes                    Print registered module routes
   info                      Print Loom project summary
   dev                       Run bun run dev
@@ -364,6 +407,7 @@ Flags:
   --dry-run, -n             Print planned writes without changing files
   --json, --with-json       Write both skeleton.md and skeleton.json
   --field, -f <spec>        Resource field: name:type:required:min=1
+  --from <path>             Read resource spec JSON
   --route <path>            Resource route prefix override
   --strict                  Enforce TDD and state-management gates in doctor
 `);
@@ -382,6 +426,7 @@ async function runMakeCommand(parsed: ParsedArgs, ctx: LoomContext) {
         fields: parsed.fields,
         route: parsed.route,
         plural: parsed.plural,
+        from: parsed.from,
         generateTest: !parsed.noTest
       }, ctx));
       return;
@@ -392,6 +437,61 @@ async function runMakeCommand(parsed: ParsedArgs, ctx: LoomContext) {
     default:
       throw new LoomError(`Unsupported make target [${kind}].`);
   }
+}
+
+async function runPlanCommand(parsed: ParsedArgs, ctx: LoomContext) {
+  const [kind, name] = parsed.args;
+  const planCtx = { ...ctx, dryRun: true };
+
+  switch (kind) {
+    case "module":
+      await requireModuleName(name, (meta) => generateModule(meta, planCtx));
+      return;
+
+    case "resource":
+      await requireModuleName(name, (meta) => generateResource(meta, {
+        fields: parsed.fields,
+        route: parsed.route,
+        plural: parsed.plural,
+        from: parsed.from,
+        generateTest: !parsed.noTest
+      }, planCtx));
+      return;
+
+    case undefined:
+      throw new LoomError("Usage: bun loom plan <module|resource> <name>");
+
+    default:
+      throw new LoomError(`Unsupported plan target [${kind}].`);
+  }
+}
+
+async function runValidateCommand(parsed: ParsedArgs, ctx: LoomContext) {
+  const [kind, name] = parsed.args;
+
+  if (!kind) {
+    return await runDoctor(ctx, false);
+  }
+
+  if (kind !== "resource") {
+    throw new LoomError(`Unsupported validate target [${kind}].`);
+  }
+
+  await requireModuleName(name, async (meta) => {
+    const spec = await createResourceSpec(meta, {
+      fields: parsed.fields,
+      route: parsed.route,
+      plural: parsed.plural,
+      from: parsed.from,
+      generateTest: !parsed.noTest
+    }, ctx);
+
+    ctx.log(`Resource spec valid: ${spec.meta.slug}`);
+    ctx.log(`Route: ${spec.routePrefix}`);
+    ctx.log(`Fields: ${spec.fields.map((field) => field.name).join(", ")}`);
+  });
+
+  return 0;
 }
 
 async function requireModuleName(
@@ -451,15 +551,10 @@ export async function generateModule(meta: ModuleMeta, ctx = createContext()) {
 
 export async function generateResource(
   meta: ModuleMeta,
-  options: {
-    fields: string[];
-    route?: string;
-    plural?: string;
-    generateTest: boolean;
-  },
+  options: ResourceGenerationOptions,
   ctx = createContext()
 ) {
-  const spec = createResourceSpec(meta, options);
+  const spec = await createResourceSpec(meta, options, ctx);
   await assertCanGenerate(meta, ctx, spec.routePrefix);
 
   const dir = moduleDir(meta.slug);
@@ -620,6 +715,11 @@ export async function runCheck(ctx = createContext()) {
 
   if (doctorCode !== 0) {
     return doctorCode;
+  }
+
+  if (!(await hasBunTestFiles(ctx))) {
+    ctx.log("No Bun tests found; skipping bun test.");
+    return 0;
   }
 
   return await runChildCommand(ctx, ["bun", "test"]);
@@ -819,16 +919,21 @@ describe("${slug} module", () => {
 `;
 }
 
-function createResourceSpec(
+async function createResourceSpec(
   meta: ModuleMeta,
-  options: { fields: string[]; route?: string; plural?: string }
+  options: ResourceGenerationOptions,
+  ctx = createContext()
 ): ResourceSpec {
-  if (options.fields.length === 0) {
+  const specFile = options.from ? await readResourceSpecFile(ctx, options.from) : undefined;
+  const specFields = (specFile?.fields ?? []).map(parseResourceSpecField);
+  const inlineFields = options.fields.map(parseResourceField);
+  const requestedFields = [...specFields, ...inlineFields];
+
+  if (requestedFields.length === 0) {
     throw new LoomError("Resource generation requires at least one --field <name:type> flag.");
   }
 
-  const parsedFields = options.fields.map(parseResourceField);
-  const fields = ensureResourceIdField(parsedFields);
+  const fields = ensureResourceIdField(requestedFields);
   const seen = new Set<string>();
 
   for (const field of fields) {
@@ -839,12 +944,19 @@ function createResourceSpec(
     seen.add(field.name);
   }
 
-  const routePrefix = normalizeRoutePrefix(options.route ?? (options.plural ? `/${normalizeModuleName(options.plural).slug}` : `/${meta.slug}`));
+  const routeSource = options.route
+    ?? specFile?.route
+    ?? (options.plural ? `/${normalizeModuleName(options.plural).slug}` : undefined)
+    ?? (specFile?.plural ? `/${normalizeModuleName(specFile.plural).slug}` : undefined)
+    ?? `/${meta.slug}`;
+  const routePrefix = normalizeRoutePrefix(routeSource);
   const idField = fields.find((field) => field.name === "id");
 
   if (!idField) {
     throw new LoomError("Resource generation failed to resolve an id field.");
   }
+
+  validateResourceIdField(idField);
 
   return {
     meta,
@@ -854,6 +966,42 @@ function createResourceSpec(
     createFields: fields.filter((field) => !field.readonly),
     updateFields: fields.filter((field) => !field.readonly)
   };
+}
+
+async function readResourceSpecFile(ctx: LoomContext, path: string): Promise<ResourceSpecFile> {
+  const content = await readTextIfExists(ctx, path);
+
+  if (!content) {
+    throw new LoomError(`Resource spec file not found: ${path}`);
+  }
+
+  try {
+    return JSON.parse(content) as ResourceSpecFile;
+  } catch {
+    throw new LoomError(`Resource spec file is not valid JSON: ${path}`);
+  }
+}
+
+function parseResourceSpecField(field: ResourceSpecFile["fields"] extends Array<infer T> ? T : never) {
+  if (typeof field === "string") {
+    return parseResourceField(field);
+  }
+
+  if (!field || typeof field !== "object") {
+    throw new LoomError("Resource spec fields must be strings or objects.");
+  }
+
+  const tokens = [
+    field.name,
+    field.type,
+    field.required ? "required" : undefined,
+    field.optional ? "optional" : undefined,
+    field.readonly ? "readonly" : undefined,
+    field.nullable ? "nullable" : undefined,
+    ...Object.entries(field.constraints ?? {}).map(([key, value]) => `${key}=${value}`)
+  ].filter(Boolean);
+
+  return parseResourceField(tokens.join(":"));
 }
 
 function parseResourceField(input: string): ResourceField {
@@ -999,6 +1147,12 @@ function ensureResourceIdField(fields: ResourceField[]) {
     : field);
 }
 
+function validateResourceIdField(field: ResourceField) {
+  if (!["uuid", "string", "integer", "number"].includes(field.type.kind)) {
+    throw new LoomError("Resource id field must use uuid, string, integer, or number.");
+  }
+}
+
 function normalizeRoutePrefix(input: string) {
   if (!input.startsWith("/") || /['"`\s]/.test(input)) {
     throw new LoomError("Resource route prefix must start with / and cannot contain quotes or whitespace.");
@@ -1035,11 +1189,16 @@ export const ${pascalName}DeleteSchema = t.Object({
   id: ${fieldSchemaExpression(spec.idField, false)}
 });
 
+export const ${pascalName}ErrorSchema = t.Object({
+  error: t.String()
+});
+
 export type ${pascalName} = typeof ${pascalName}Schema.static;
 export type Create${pascalName}Input = typeof Create${pascalName}Schema.static;
 export type Update${pascalName}Input = typeof Update${pascalName}Schema.static;
 export type ${pascalName}Params = typeof ${pascalName}ParamsSchema.static;
 export type ${pascalName}DeleteResponse = typeof ${pascalName}DeleteSchema.static;
+export type ${pascalName}ErrorResponse = typeof ${pascalName}ErrorSchema.static;
 `;
 }
 
@@ -1153,6 +1312,7 @@ function resourceServiceTemplate(spec: ResourceSpec) {
   const { slug, pascalName } = spec.meta;
   const storeName = `${camelName(pascalName)}Store`;
   const fixtureName = `${camelName(pascalName)}Fixture`;
+  const nextIdExpression = nextIdExpressionFor(spec.idField, storeName, pascalName);
 
   return `${LOOM_GENERATED_HEADER}import type {
   Create${pascalName}Input,
@@ -1164,19 +1324,19 @@ function resourceServiceTemplate(spec: ResourceSpec) {
 
 const ${fixtureName}: ${pascalName} = ${objectLiteral(spec.fields)};
 
-const ${storeName}: ${pascalName}[] = [${fixtureName}];
+const ${storeName}: ${pascalName}[] = [{ ...${fixtureName} }];
 
 function next${pascalName}Id(): ${pascalName}["id"] {
-  return ${fixtureName}.id;
+  return ${nextIdExpression};
 }
 
 export const ${pascalName}Service = {
   list(): ${pascalName}[] {
-    return ${storeName};
+    return [...${storeName}];
   },
 
-  get(id: ${pascalName}Params["id"]): ${pascalName} {
-    return ${storeName}.find((item) => item.id === id) ?? ${fixtureName};
+  get(id: ${pascalName}Params["id"]): ${pascalName} | undefined {
+    return ${storeName}.find((item) => item.id === id);
   },
 
   create(input: Create${pascalName}Input): ${pascalName} {
@@ -1190,17 +1350,32 @@ export const ${pascalName}Service = {
     return next;
   },
 
-  update(id: ${pascalName}Params["id"], input: Update${pascalName}Input): ${pascalName} {
+  update(id: ${pascalName}Params["id"], input: Update${pascalName}Input): ${pascalName} | undefined {
+    const index = ${storeName}.findIndex((item) => item.id === id);
+
+    if (index === -1) {
+      return undefined;
+    }
+
     const next: ${pascalName} = {
-      ...this.get(id),
+      ...${storeName}[index],
       ...input,
       id
     };
 
+    ${storeName}[index] = next;
     return next;
   },
 
-  remove(id: ${pascalName}Params["id"]): ${pascalName}DeleteResponse {
+  remove(id: ${pascalName}Params["id"]): ${pascalName}DeleteResponse | undefined {
+    const index = ${storeName}.findIndex((item) => item.id === id);
+
+    if (index === -1) {
+      return undefined;
+    }
+
+    ${storeName}.splice(index, 1);
+
     return {
       ok: true,
       id
@@ -1218,6 +1393,7 @@ import { ${pascalName}Service } from './${slug}.service';
 import {
   Create${pascalName}Schema,
   ${pascalName}DeleteSchema,
+  ${pascalName}ErrorSchema,
   ${pascalName}ListSchema,
   ${pascalName}ParamsSchema,
   ${pascalName}Schema,
@@ -1234,20 +1410,29 @@ export const ${controllerName} = new Elysia({ prefix: '${spec.routePrefix}' })
     response: ${pascalName}Schema,
     detail: { summary: 'Create ${slug}' }
   })
-  .get('/:id', ({ params }) => ${pascalName}Service.get(params.id), {
+  .get('/:id', ({ params, status }) => ${pascalName}Service.get(params.id) ?? status(404, { error: '${pascalName} not found' }), {
     params: ${pascalName}ParamsSchema,
-    response: ${pascalName}Schema,
+    response: {
+      200: ${pascalName}Schema,
+      404: ${pascalName}ErrorSchema
+    },
     detail: { summary: 'Get ${slug} by id' }
   })
-  .patch('/:id', ({ params, body }) => ${pascalName}Service.update(params.id, body), {
+  .patch('/:id', ({ params, body, status }) => ${pascalName}Service.update(params.id, body) ?? status(404, { error: '${pascalName} not found' }), {
     params: ${pascalName}ParamsSchema,
     body: Update${pascalName}Schema,
-    response: ${pascalName}Schema,
+    response: {
+      200: ${pascalName}Schema,
+      404: ${pascalName}ErrorSchema
+    },
     detail: { summary: 'Update ${slug} by id' }
   })
-  .delete('/:id', ({ params }) => ${pascalName}Service.remove(params.id), {
+  .delete('/:id', ({ params, status }) => ${pascalName}Service.remove(params.id) ?? status(404, { error: '${pascalName} not found' }), {
     params: ${pascalName}ParamsSchema,
-    response: ${pascalName}DeleteSchema,
+    response: {
+      200: ${pascalName}DeleteSchema,
+      404: ${pascalName}ErrorSchema
+    },
     detail: { summary: 'Delete ${slug} by id' }
   });
 `;
@@ -1328,6 +1513,23 @@ ${fields.map((field) => `  ${field.name}: ${fieldFixtureValue(field)}`).join(",\
 
 function fieldFixtureValue(field: ResourceField): string {
   return fixtureForType(field.type, field.name, field.constraints);
+}
+
+function nextIdExpressionFor(field: ResourceField, storeName: string, pascalName: string) {
+  switch (field.type.kind) {
+    case "uuid":
+      return `crypto.randomUUID() as ${pascalName}["id"]`;
+
+    case "integer":
+    case "number":
+      return `(${storeName}.length + 1) as ${pascalName}["id"]`;
+
+    case "string":
+      return `String(Date.now()) as ${pascalName}["id"]`;
+
+    default:
+      return `crypto.randomUUID() as ${pascalName}["id"]`;
+  }
 }
 
 function fixtureForType(type: ResourceFieldType, fieldName: string, constraints: Record<string, string>): string {
@@ -1632,7 +1834,7 @@ async function createBrief(
     `Stack: ${runtime}/${framework}/${schema}/${pattern}`,
     "Read: brief first; then skeleton.md OR skeleton.json, not both.",
     "TDD: write/generate tests before behavior changes; strict doctor requires module tests.",
-    "CLI: make module | make resource --field | sync | check | routes | info | g | route | test | s | s --json | brief | inspect | doctor | doctor --strict",
+    "CLI: make module | make resource --field | plan | validate | sync | check | routes | info | g | route | test | s | s --json | brief | inspect | doctor | doctor --strict",
     "",
     "Modules:"
   ];
@@ -2256,6 +2458,25 @@ async function scanTs(ctx: LoomContext, pattern: string) {
   }
 
   return paths.sort();
+}
+
+async function hasBunTestFiles(ctx: LoomContext) {
+  const patterns = [
+    "tests/**/*.test.ts",
+    "tests/**/*.spec.ts",
+    "test/**/*.test.ts",
+    "test/**/*.spec.ts"
+  ];
+
+  for (const pattern of patterns) {
+    const glob = new Glob(pattern);
+
+    for await (const _path of glob.scan(ctx.root)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function scanProjectFiles(ctx: LoomContext) {

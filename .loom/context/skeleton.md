@@ -1,40 +1,14 @@
-# PROJECT SKELETON MAP
-Generated: 2026-04-26T17:44:44.772Z
+# LOOM PACKAGE SKELETON
+Generated: 2026-04-26T00:00:00.000Z
 
-### File: src/index.ts
-```typescript
-import { Elysia } from 'elysia';
-import { healthController } from './modules/health/health.controller';
-.get('/', <handler>)
-.use(healthController)
-```
+## Product Files
 
-### File: src/modules/health/health.controller.ts
-```typescript
-import { Elysia } from 'elysia';
-import { HealthService } from './health.service';
-import { HealthSchema } from './health.schema';
-export const healthController = new Elysia({ prefix: '/health' })
-.get('/', <handler>, {
-  response: HealthSchema,
-  detail: { summary: 'Get health status' }
-})
-```
+- `scripts/loom.ts`: target-project CLI implementation.
+- `scripts/install-loom.ts`: package/bin installer for fresh or existing Elysia apps.
+- `templates/default/`: files copied into target apps.
+- `tests/`: package tests for CLI and installer behavior.
+- `fixtures/`: Elysia apps used only to test generated conventions.
 
-### File: src/modules/health/health.schema.ts
-```typescript
-import { t } from 'elysia';
-export const HealthSchema = t.Object({
-  message: t.String(),
-  timestamp: t.Number()
-});
-export type HealthResponse = typeof HealthSchema.static
-```
+## Boundary
 
-### File: src/modules/health/health.service.ts
-```typescript
-import type { HealthResponse } from './health.schema';
-export const HealthService
-getStatus(): HealthResponse
-```
-
+This repository is not a generated target app. Do not infer root `src/index.ts` or root modules from this package.

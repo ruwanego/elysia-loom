@@ -1,36 +1,26 @@
 {
   "name": "elysia-loom",
-  "version": "1.0.50",
+  "version": "0.2.0-alpha.0",
   "bin": {
     "elysia-loom": "./scripts/install-loom.ts",
     "create-loom": "./scripts/install-loom.ts",
     "loom-install": "./scripts/install-loom.ts"
   },
   "files": [
-    ".github/workflows/loom.yml",
-    ".githooks/pre-push",
-    ".loom/AGENT.md",
-    ".loom/manifest.json",
-    "AGENT.md",
-    "AGENTS.md",
     "scripts/install-loom.ts",
     "scripts/loom.ts",
-    "tests/loom.test.ts"
+    "templates/default"
   ],
   "scripts": {
-    "check": "bun loom check",
+    "check": "bun test",
     "test": "bun test",
-    "dev": "bun run --watch src/index.ts",
     "loom": "bun run scripts/loom.ts",
     "loom:install": "bun run scripts/install-loom.ts",
-    "hooks:install": "git config core.hooksPath .githooks",
-    "prepare": "bun run hooks:install"
-  },
-  "dependencies": {
-    "elysia": "latest"
+    "hooks:install": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
-    "bun-types": "latest"
+    "bun-types": "latest",
+    "elysia": "latest"
   },
-  "module": "src/index.js"
+  "module": "scripts/loom.ts"
 }

@@ -2,4 +2,4 @@
 set -eu
 
 echo "Running Loom pre-push checks..."
-bun run check
+bun loom check

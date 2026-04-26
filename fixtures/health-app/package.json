@@ -1,0 +1,12 @@
+{
+  "name": "loom-health-fixture",
+  "private": true,
+  "scripts": {
+    "loom": "bun run ../../scripts/loom.ts",
+    "check": "bun run ../../scripts/loom.ts check",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "elysia": "latest"
+  }
+}

@@ -1,11 +1,16 @@
 # LOOM BRIEF
-Generated: 2026-04-26T17:44:44.772Z
+Generated: 2026-04-26T00:00:00.000Z
 
-Stack: Bun/Elysia/TypeBox/CSS
-Read: brief first; then skeleton.md OR skeleton.json, not both.
-TDD: write/generate tests before behavior changes; strict doctor requires module tests.
-CLI: make module | make resource --field | sync | check | routes | info | g | route | test | s | s --json | brief | inspect | doctor | doctor --strict
+Purpose: `elysia-loom` CLI/installer package. Root is not an Elysia app.
+Read: package protocol first; use target templates only when editing installer output.
+Check: `bun run check`
+CLI source: `scripts/loom.ts`
+Installer source: `scripts/install-loom.ts`
+Target templates: `templates/default/`
+Fixtures: `fixtures/`
 
-Modules:
-- health /health test:yes registered:yes
-  GET / -> HealthSchema
+Root Conventions:
+- no root `src/modules/*`
+- no root app server
+- Elysia code lives in fixtures or generated temp test apps
+- target-app Loom protocol lives in `templates/default/.loom/AGENT.md`

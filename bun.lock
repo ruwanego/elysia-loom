@@ -4,11 +4,9 @@
   "workspaces": {
     "": {
       "name": "elysia-loom",
-      "dependencies": {
-        "elysia": "latest",
-      },
       "devDependencies": {
         "bun-types": "latest",
+        "elysia": "latest",
       },
     },
   },

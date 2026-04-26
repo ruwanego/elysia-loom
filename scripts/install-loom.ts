@@ -26,16 +26,19 @@ type ParsedArgs = {
 };
 
 const SOURCE_ROOT = resolve(import.meta.dir, "..");
+const TEMPLATE_ROOT = join(SOURCE_ROOT, "templates", "default");
 
-const COPY_PATHS = [
+const TEMPLATE_COPY_PATHS = [
   ".loom/AGENT.md",
   ".loom/manifest.json",
   "AGENT.md",
   "AGENTS.md",
   ".githooks/pre-push",
-  ".github/workflows/loom.yml",
-  "scripts/loom.ts",
-  "tests/loom.test.ts"
+  ".github/workflows/loom.yml"
+];
+
+const PROJECT_COPY_PATHS = [
+  "scripts/loom.ts"
 ];
 
 class InstallError extends Error {}
@@ -60,12 +63,12 @@ export async function installLoom(options: Partial<InstallOptions> & { target: s
 
   if (config.runCommands && !config.dryRun) {
     if (config.health) {
-      await runTargetCommand(config, ["bun", "loom", "g", "health"]);
+      await runTargetCommand(config, ["bun", "loom", "make", "module", "health"]);
       await runTargetCommand(config, ["bun", "loom", "test", "health"]);
     }
 
-    await runTargetCommand(config, ["bun", "loom", "s", ...(config.json ? ["--json"] : [])]);
-    await runTargetCommand(config, ["bun", "loom", "doctor", "--strict"]);
+    await runTargetCommand(config, config.json ? ["bun", "loom", "sync"] : ["bun", "loom", "s"]);
+    await runTargetCommand(config, ["bun", "loom", "check"]);
   }
 
   config.log(`Loom installed in ${config.target}`);
@@ -120,8 +123,12 @@ async function ensureBaseDirectories(config: InstallOptions) {
 }
 
 async function copyLoomFiles(config: InstallOptions) {
-  for (const relativePath of COPY_PATHS) {
-    await copyProjectFile(config, relativePath);
+  for (const relativePath of TEMPLATE_COPY_PATHS) {
+    await copyProjectFile(config, TEMPLATE_ROOT, relativePath);
+  }
+
+  for (const relativePath of PROJECT_COPY_PATHS) {
+    await copyProjectFile(config, SOURCE_ROOT, relativePath);
   }
 }
 
@@ -146,6 +153,10 @@ async function updatePackageJson(config: InstallOptions) {
     scripts.prepare = "bun run hooks:install";
   } else if (!scripts.prepare.includes("hooks:install")) {
     scripts.prepare = `bun run hooks:install && ${scripts.prepare}`;
+  }
+
+  if (!pkg.dependencies?.elysia && !pkg.devDependencies?.elysia) {
+    pkg.dependencies = { ...(pkg.dependencies ?? {}), elysia: "latest" };
   }
 
   pkg.scripts = scripts;
@@ -217,8 +228,8 @@ function insertModuleAnchor(content: string) {
   return content.replace(".listen(", "\n  // [LOOM_MODULE_ANCHOR]\n  .listen(");
 }
 
-async function copyProjectFile(config: InstallOptions, relativePath: string) {
-  const source = join(SOURCE_ROOT, relativePath);
+async function copyProjectFile(config: InstallOptions, sourceRoot: string, relativePath: string) {
+  const source = join(sourceRoot, relativePath);
   const target = join(config.target, relativePath);
 
   if (!config.force && await pathExists(target)) {
