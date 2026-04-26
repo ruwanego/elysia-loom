@@ -11,6 +11,14 @@
     "dist/loom.js",
     "templates/default"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ruwanego/elysia-loom.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ruwanego/elysia-loom/issues"
+  },
+  "homepage": "https://github.com/ruwanego/elysia-loom#readme",
   "scripts": {
     "build": "bun build src/loom.ts --outfile dist/loom.js --target bun --minify",
     "check": "bun run build && bun test && bun pm pack --dry-run",

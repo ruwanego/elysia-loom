@@ -30,7 +30,7 @@
 - `bun loom s --json`: Alias for Markdown and JSON skeleton refresh.
 - `bun loom doctor`: Audit anchors, registrations, CSS files, dependency drift, and skeleton freshness.
 - `bun loom doctor --strict`: Enforce TDD/module-test and state-management gates.
-- `bunx elysia-loom <target>`: Install Loom into another Bun/Elysia project from the package bin.
+- `bunx github:ruwanego/elysia-loom <target>`: Install Loom into another Bun/Elysia project from GitHub.
 - `bun run loom:install <target>`: Install Loom into another Bun/Elysia project.
 - `--from <path>`: Read resource field specs from JSON.
 - `--dry-run` or `-n`: Preview supported write commands without changing files.

@@ -91,7 +91,7 @@ function printHelp() {
   console.log(`
 LOOM INSTALLER
 Usage:
-  bunx elysia-loom <target> [flags]
+  bunx github:ruwanego/elysia-loom <target> [flags]
   bun run loom:install <target> [flags]
 
 Flags:

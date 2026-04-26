@@ -7,7 +7,7 @@ Loom is convention over configuration for agent-driven backend work. The package
 ## Install Into An App
 
 ```bash
-bunx elysia-loom ./my-elysia-app --health
+bunx github:ruwanego/elysia-loom ./my-elysia-app --health
 ```
 
 Local development from this repo:
