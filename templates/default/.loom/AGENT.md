@@ -10,6 +10,11 @@
 
 - `bun loom make module <name>`: Create a CSS module and auto-register it.
 - `bun loom make resource <name> --field <name:type>`: Create a typed CRUD resource from deterministic field specs.
+- `bun loom make guard <name>`: Create an Elysia guard plugin (derive/resolve scoped).
+- `bun loom make middleware <name>`: Create an Elysia lifecycle middleware plugin.
+- `bun loom make hook <name>`: Create an Elysia macro hook plugin.
+- `bun loom make plugin <name>`: Create a generic Elysia plugin.
+- `bun loom init swagger`: Wire @elysiajs/swagger into src/index.ts.
 - `bun loom plan resource <name> --from <path>`: Preview generated resource writes.
 - `bun loom validate resource <name> --from <path>`: Validate resource specs without writing.
 - `bun loom sync`: Refresh `.loom/context/brief.md`, `.loom/context/skeleton.md`, and `.loom/context/skeleton.json`.
@@ -29,6 +34,7 @@
 - `bun run loom:install <target>`: Install Loom into another Bun/Elysia project.
 - `--from <path>`: Read resource field specs from JSON.
 - `--dry-run` or `-n`: Preview supported write commands without changing files.
+- `--no-test`: Skip test generation.
 
 ## TDD Gate
 

@@ -90,6 +90,9 @@ export async function runDoctor(ctx: LoomContext = createContext(), strict = fal
   auditManifest(manifest, pkg, issues, warnings);
   await auditSkeletonFreshness(ctx, issues);
 
+  const { auditCoreArtifacts } = await import("./core");
+  await auditCoreArtifacts(ctx, issues);
+
   if (strict) {
     await auditStrictState(ctx, entry, issues);
   }

@@ -15,6 +15,13 @@ export {
   inspectModule
 } from "./modules";
 export {
+  generateCoreArtifact,
+  removeCoreArtifact,
+  initSwagger,
+  listCoreArtifacts
+} from "./core";
+export type { CoreArtifactKind } from "./core-templates";
+export {
   syncContext,
   refreshSkeleton,
   refreshBrief,

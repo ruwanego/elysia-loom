@@ -13,6 +13,11 @@ Loom rules that must not be missed:
 
 - Create modules with `bun loom make module <name>` or `bun loom g <name>`.
 - Create typed CRUD resources with `bun loom make resource <name> --field <name:type>`.
+- Create guards with `bun loom make guard <name>`.
+- Create middleware with `bun loom make middleware <name>`.
+- Create hooks with `bun loom make hook <name>`.
+- Create plugins with `bun loom make plugin <name>`.
+- Wire OpenAPI docs with `bun loom init swagger`.
 - Preview typed CRUD generation with `bun loom plan resource <name> --from <path>`.
 - Validate typed CRUD specs with `bun loom validate resource <name> --from <path>`.
 - Refresh context with `bun loom sync`.
@@ -26,6 +31,7 @@ Loom rules that must not be missed:
 - Install Loom into another app with `bun run loom:install <target>`.
 - Do not manually edit Loom-managed `src/index.ts` wiring.
 - Keep routes in `.controller.ts`, logic in `.service.ts`, and TypeBox schemas in `.schema.ts`.
+- Keep guards in `src/core/guards/`, middleware in `src/core/middleware/`, hooks in `src/core/hooks/`.
 - For behavior changes, write or generate tests before implementation.
 - Run `bun loom sync` after signature or schema changes.
 - Run `bun loom check` before handing work back.

@@ -4,6 +4,8 @@
  */
 
 import { VERSION } from "./constants";
+import { generateCoreArtifact, initSwagger, removeCoreArtifact } from "./core";
+import type { CoreArtifactKind } from "./core-templates";
 import { syncContext } from "./context";
 import { printInfo, printRoutes, runCheck, runDoctor } from "./doctor";
 import { runChildCommand } from "./fs";
@@ -20,6 +22,8 @@ import { refreshBrief, refreshSkeleton } from "./context";
 import { normalizeModuleName } from "./utils";
 import type { LoomContext, ModuleMeta, ParsedArgs } from "./types";
 import { LoomError, createContext } from "./types";
+
+const CORE_ARTIFACT_KINDS = new Set<string>(["guard", "middleware", "hook", "plugin"]);
 
 export async function runLoom(argv: string[], options: Partial<LoomContext> = {}) {
   const baseCtx = createContext(options);
@@ -38,6 +42,11 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
     });
 
     switch (parsed.command) {
+      case "i":
+      case "init":
+        await runInitCommand(parsed, ctx);
+        return 0;
+
       case "m":
       case "make":
         await runMakeCommand(parsed, ctx);
@@ -50,7 +59,7 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
 
       case "r":
       case "remove":
-        await requireModuleName(parsed.args[0], (meta) => removeModule(meta, ctx));
+        await runRemoveCommand(parsed, ctx);
         return 0;
 
       case "route":
@@ -221,10 +230,15 @@ LOOM CLI v${VERSION}
 Usage: bun loom <command> [args]
 
 Commands:
+  init swagger              Wire @elysiajs/swagger into src/index.ts
   make module <name>        Create a CSS module and auto-register it
   make resource <name>      Create typed CRUD resource from --field flags
+  make guard <name>         Create an Elysia guard (derive/resolve plugin)
+  make middleware <name>    Create an Elysia lifecycle middleware plugin
+  make hook <name>          Create an Elysia macro hook plugin
+  make plugin <name>        Create a generic Elysia plugin
   g, generate <name>        Create a CSS module and auto-register it
-  r, remove <name>          Remove a generated module and registration
+  r, remove <name>          Remove a generated module or core artifact
   route <mod> <method> <p>  Add a service-backed route to a module
   test <module>             Generate Bun tests for a CSS module
   sync                      Refresh brief, skeleton.md, and skeleton.json
@@ -248,11 +262,35 @@ Flags:
   --from <path>             Read resource spec JSON
   --route <path>            Resource route prefix override
   --strict                  Enforce TDD and state-management gates in doctor
+  --no-test                 Skip test generation for make resource/guard/etc
 `);
+}
+
+async function runInitCommand(parsed: ParsedArgs, ctx: LoomContext) {
+  const [target] = parsed.args;
+
+  switch (target) {
+    case "swagger":
+      await initSwagger(ctx);
+      return;
+
+    case undefined:
+      throw new LoomError("Usage: bun loom init <swagger>");
+
+    default:
+      throw new LoomError(`Unsupported init target [${target}].`);
+  }
 }
 
 async function runMakeCommand(parsed: ParsedArgs, ctx: LoomContext) {
   const [kind, name] = parsed.args;
+
+  if (kind && CORE_ARTIFACT_KINDS.has(kind)) {
+    await requireModuleName(name, (meta) =>
+      generateCoreArtifact(kind as CoreArtifactKind, meta, !parsed.noTest, ctx)
+    );
+    return;
+  }
 
   switch (kind) {
     case "module":
@@ -270,16 +308,36 @@ async function runMakeCommand(parsed: ParsedArgs, ctx: LoomContext) {
       return;
 
     case undefined:
-      throw new LoomError("Usage: bun loom make <module|resource> <name>");
+      throw new LoomError("Usage: bun loom make <module|resource|guard|middleware|hook|plugin> <name>");
 
     default:
       throw new LoomError(`Unsupported make target [${kind}].`);
   }
 }
 
+async function runRemoveCommand(parsed: ParsedArgs, ctx: LoomContext) {
+  const [kindOrName, name] = parsed.args;
+
+  if (kindOrName && CORE_ARTIFACT_KINDS.has(kindOrName) && name) {
+    await requireModuleName(name, (meta) =>
+      removeCoreArtifact(kindOrName as CoreArtifactKind, meta, ctx)
+    );
+    return;
+  }
+
+  await requireModuleName(kindOrName, (meta) => removeModule(meta, ctx));
+}
+
 async function runPlanCommand(parsed: ParsedArgs, ctx: LoomContext) {
   const [kind, name] = parsed.args;
   const planCtx = { ...ctx, dryRun: true };
+
+  if (kind && CORE_ARTIFACT_KINDS.has(kind)) {
+    await requireModuleName(name, (meta) =>
+      generateCoreArtifact(kind as CoreArtifactKind, meta, !parsed.noTest, planCtx)
+    );
+    return;
+  }
 
   switch (kind) {
     case "module":
@@ -297,7 +355,7 @@ async function runPlanCommand(parsed: ParsedArgs, ctx: LoomContext) {
       return;
 
     case undefined:
-      throw new LoomError("Usage: bun loom plan <module|resource> <name>");
+      throw new LoomError("Usage: bun loom plan <module|resource|guard|middleware|hook|plugin> <name>");
 
     default:
       throw new LoomError(`Unsupported plan target [${kind}].`);

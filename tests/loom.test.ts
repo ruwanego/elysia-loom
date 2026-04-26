@@ -36,6 +36,11 @@ beforeEach(async () => {
 
 - bun loom make module <name>
 - bun loom make resource <name> --field <name:type>
+- bun loom make guard <name>
+- bun loom make middleware <name>
+- bun loom make hook <name>
+- bun loom make plugin <name>
+- bun loom init swagger
 - bun loom plan resource <name>
 - bun loom validate resource <name>
 - bun loom sync
