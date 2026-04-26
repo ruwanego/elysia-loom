@@ -21,6 +21,9 @@ bun run loom:install ./my-elysia-app --health
 ```bash
 bun loom make module users
 bun loom make resource users --field email:email:required
+bun loom make guard auth
+bun loom make plugin db
+bun loom init swagger
 bun loom plan resource users --from .loom/specs/users.resource.json
 bun loom validate resource users --from .loom/specs/users.resource.json
 bun loom routes
@@ -34,7 +37,7 @@ bun loom --version
 This repository is the CLI package, not an Elysia app.
 
 ```txt
-src/                   CLI product source (TypeScript modules)
+src/                   CLI product source (lib, generators, engine)
 dist/                  built bundle (loom.js — copied into target apps)
 templates/default/     files copied into target Elysia apps
 tests/                 package tests

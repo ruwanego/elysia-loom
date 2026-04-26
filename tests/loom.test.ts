@@ -137,6 +137,35 @@ describe("loom cli", () => {
     expect(await runLoom(["doctor"], ctx)).toBe(0);
   });
 
+  test("generates, audits, and removes core artifacts and initializes swagger", async () => {
+    const ctx = silentContext();
+
+    expect(await runLoom(["make", "guard", "auth"], ctx)).toBe(0);
+    expect(await runLoom(["make", "middleware", "logger"], ctx)).toBe(0);
+    expect(await runLoom(["make", "hook", "on-error"], ctx)).toBe(0);
+    expect(await runLoom(["make", "plugin", "db"], ctx)).toBe(0);
+    expect(await runLoom(["init", "swagger"], ctx)).toBe(0);
+
+    const guard = await readFile(join(root, "src", "core", "guards", "auth.guard.ts"), "utf8");
+    expect(guard).toContain("export const authGuard = new Elysia({ name: 'guard/auth' })");
+    expect(guard).toContain("@loom-generated");
+
+    const guardTest = await readFile(join(root, "tests", "core", "auth.guard.test.ts"), "utf8");
+    expect(guardTest).toContain("describe(\"auth guard\"");
+
+    const swaggerIndex = await readFile(join(root, "src", "index.ts"), "utf8");
+    expect(swaggerIndex).toContain("import { swagger } from '@elysiajs/swagger';");
+    expect(swaggerIndex).toContain(".use(swagger())");
+
+    const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    expect(pkg.dependencies["@elysiajs/swagger"]).toBeDefined();
+
+    expect(await runLoom(["doctor"], ctx)).toBe(0);
+
+    expect(await runLoom(["r", "guard", "auth"], ctx)).toBe(0);
+    await expect(readFile(join(root, "src", "core", "guards", "auth.guard.ts"), "utf8")).rejects.toThrow();
+  });
+
   test("dry-run does not write files", async () => {
     const ctx = silentContext();
 

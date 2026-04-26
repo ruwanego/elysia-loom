@@ -16,7 +16,7 @@ Rules that must not be missed:
 - Do not create root `src/modules/*` app modules.
 - Put target-app template files in `templates/default/`.
 - Prefer temporary generated Elysia apps in tests for runtime checks.
-- Keep CLI product logic in `src/` modules.
+- Keep CLI product logic in `src/` subdirectories (`lib/`, `generators/`, `engine/`).
 - Keep installer/package bootstrap logic in `src/installer.ts`.
 - Run `bun run build` to produce `dist/loom.js` before testing.
 - Run `bun run check` (build + test + pack) before handing work back.
