@@ -1,3 +1,6 @@
+// @loom-generated
+// Update with Loom CLI commands.
+
 import { t } from 'elysia';
 
 export const HealthSchema = t.Object({

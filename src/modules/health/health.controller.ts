@@ -1,3 +1,6 @@
+// @loom-generated
+// Update with Loom CLI commands.
+
 import { Elysia } from 'elysia';
 import { HealthService } from './health.service';
 import { HealthSchema } from './health.schema';

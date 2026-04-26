@@ -2,5 +2,5 @@
 set -eu
 
 echo "Running Loom pre-push checks..."
-bun loom doctor
+bun loom doctor --strict
 bun test

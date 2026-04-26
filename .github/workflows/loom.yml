@@ -23,7 +23,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run Loom doctor
-        run: bun loom doctor
+        run: bun loom doctor --strict
 
       - name: Run tests
         run: bun test

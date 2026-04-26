@@ -9,13 +9,31 @@ import { dirname, join } from "node:path";
 
 const ENTRY_PATH = "src/index.ts";
 const MODULES_PATH = "src/modules";
+const MODULE_TESTS_PATH = "tests/modules";
+const BRIEF_PATH = ".loom/context/brief.md";
 const SKELETON_MD_PATH = ".loom/context/skeleton.md";
 const SKELETON_JSON_PATH = ".loom/context/skeleton.json";
 const MANIFEST_PATH = ".loom/manifest.json";
 const PACKAGE_PATH = "package.json";
+const LOOM_GENERATED_MARKER = "@loom-generated";
+const LOOM_GENERATED_HEADER = `// ${LOOM_GENERATED_MARKER}
+// Update with Loom CLI commands.
+
+`;
 
 const HTTP_METHODS = new Set(["get", "post", "put", "patch", "delete", "options", "head"]);
 const FORBIDDEN_PACKAGES = ["zod", "express"];
+const EXPECTED_PROTOCOL_COMMANDS = [
+  "bun loom g <name>",
+  "bun loom route <module> <method> <path>",
+  "bun loom test <module>",
+  "bun loom brief",
+  "bun loom inspect <module>",
+  "bun loom s",
+  "bun loom s --json",
+  "bun loom doctor",
+  "bun loom doctor --strict"
+];
 
 export const ANCHORS = {
   import: "// [LOOM_IMPORT_ANCHOR]",
@@ -41,6 +59,7 @@ type ParsedArgs = {
   args: string[];
   dryRun: boolean;
   emitJson: boolean;
+  strict: boolean;
 };
 
 type ControllerImport = {
@@ -126,13 +145,25 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
         await addRoute(parsed.args[0], parsed.args[1], parsed.args[2], ctx);
         return 0;
 
+      case "test":
+        await requireModuleName(parsed.args[0], (meta) => generateModuleTest(meta, ctx));
+        return 0;
+
+      case "brief":
+        await refreshBrief(ctx);
+        return 0;
+
+      case "inspect":
+        await requireModuleName(parsed.args[0], (meta) => inspectModule(meta, ctx));
+        return 0;
+
       case "s":
       case "skeleton":
         await refreshSkeleton(ctx);
         return 0;
 
       case "doctor":
-        return await runDoctor(ctx);
+        return await runDoctor(ctx, parsed.strict);
 
       case "help":
       case undefined:
@@ -153,15 +184,18 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
 function parseArgs(argv: string[]): ParsedArgs {
   const dryRunFlags = new Set(["--dry-run", "-n"]);
   const jsonFlags = new Set(["--json", "--with-json"]);
+  const strictFlags = new Set(["--strict"]);
   const dryRun = argv.some((arg) => dryRunFlags.has(arg));
   const emitJson = argv.some((arg) => jsonFlags.has(arg));
-  const positional = argv.filter((arg) => !dryRunFlags.has(arg) && !jsonFlags.has(arg));
+  const strict = argv.some((arg) => strictFlags.has(arg));
+  const positional = argv.filter((arg) => !dryRunFlags.has(arg) && !jsonFlags.has(arg) && !strictFlags.has(arg));
 
   return {
     command: positional[0] ?? "help",
     args: positional.slice(1),
     dryRun,
-    emitJson
+    emitJson,
+    strict
   };
 }
 
@@ -174,6 +208,9 @@ Commands:
   g, generate <name>        Create a CSS module and auto-register it
   r, remove <name>          Remove a generated module and registration
   route <mod> <method> <p>  Add a service-backed route to a module
+  test <module>             Generate Bun tests for a CSS module
+  brief                     Refresh the ultra-small agent context
+  inspect <module>          Print one module's compact context
   s, skeleton               Refresh the Markdown context map
   doctor                    Audit Loom drift and registration health
   help                      Show this menu
@@ -181,6 +218,7 @@ Commands:
 Flags:
   --dry-run, -n             Print planned writes without changing files
   --json, --with-json       Write both skeleton.md and skeleton.json
+  --strict                  Enforce TDD and state-management gates in doctor
 `);
 }
 
@@ -241,6 +279,7 @@ export async function generateModule(meta: ModuleMeta, ctx = createContext()) {
 
 export async function removeModule(meta: ModuleMeta, ctx = createContext()) {
   await removePath(ctx, moduleDir(meta.slug));
+  await removePath(ctx, moduleTestPath(meta.slug));
   await unregisterModule(meta, ctx);
   await syncAfterMutation(ctx);
 
@@ -296,6 +335,73 @@ export async function addRoute(
   ctx.log(`Route [${method.toUpperCase()} ${routePath}] ${ctx.dryRun ? "planned" : "added"} to [${meta.slug}].`);
 }
 
+export async function generateModuleTest(meta: ModuleMeta, ctx = createContext()) {
+  const files = moduleFiles(meta.slug);
+  const testPath = moduleTestPath(meta.slug);
+
+  for (const path of Object.values(files)) {
+    if (!(await pathExists(ctx, path))) {
+      throw new LoomError(`Missing module file: ${path}`);
+    }
+  }
+
+  if (await pathExists(ctx, testPath)) {
+    throw new LoomError(`Module test already exists: ${testPath}`);
+  }
+
+  const controller = await readText(ctx, files.controller);
+  const service = await readText(ctx, files.service);
+
+  if (!controller.includes(`export const ${meta.controllerName}`)) {
+    throw new LoomError(`${files.controller} must export ${meta.controllerName}.`);
+  }
+
+  if (!service.includes(`export const ${meta.pascalName}Service`)) {
+    throw new LoomError(`${files.service} must export ${meta.pascalName}Service.`);
+  }
+
+  ctx.log(`${ctx.dryRun ? "Planning" : "Generating"} module test: ${meta.slug}`);
+  await writeText(ctx, testPath, moduleTestTemplate(meta));
+  await refreshBrief(ctx);
+  ctx.log(`Module test [${testPath}] ${ctx.dryRun ? "planned" : "created"}.`);
+}
+
+export async function inspectModule(meta: ModuleMeta, ctx = createContext()) {
+  const output = await createSkeletonOutput(ctx, "<inspect>");
+  const module = output.json.modules.find((candidate) => candidate.name === meta.slug);
+
+  if (!module) {
+    throw new LoomError(`Module [${meta.slug}] not found.`);
+  }
+
+  const files = moduleFiles(meta.slug);
+  const testPath = moduleTestPath(meta.slug);
+  const hasTest = await pathExists(ctx, testPath);
+  const lines = [
+    `Module: ${module.name}`,
+    `Prefix: ${module.prefix}`,
+    `Registered: ${module.registered ? "yes" : "no"}`,
+    `Files: controller:${module.files.controller ? "yes" : "no"} service:${module.files.service ? "yes" : "no"} schema:${module.files.schema ? "yes" : "no"} test:${hasTest ? "yes" : "no"}`,
+    `Controller: ${files.controller}`,
+    `Service: ${files.service}`,
+    `Schema: ${files.schema}`,
+    `Test: ${testPath}`,
+    "Routes:"
+  ];
+
+  if (module.routes.length === 0) {
+    lines.push("- none");
+  }
+
+  for (const route of module.routes) {
+    const response = route.response ? ` -> ${route.response}` : "";
+    const detail = route.summary ? ` (${route.summary})` : "";
+    lines.push(`- ${route.method.toUpperCase()} ${route.path}${response}${detail}`);
+  }
+
+  ctx.log(lines.join("\n"));
+}
+
 async function assertCanGenerate(meta: ModuleMeta, ctx: LoomContext) {
   const issues: string[] = [];
   const dir = moduleDir(meta.slug);
@@ -343,7 +449,7 @@ async function assertCanGenerate(meta: ModuleMeta, ctx: LoomContext) {
 }
 
 function schemaTemplate({ pascalName }: ModuleMeta) {
-  return `import { t } from 'elysia';
+  return `${LOOM_GENERATED_HEADER}import { t } from 'elysia';
 
 export const ${pascalName}Schema = t.Object({
   message: t.String(),
@@ -355,7 +461,7 @@ export type ${pascalName}Response = typeof ${pascalName}Schema.static;
 }
 
 function serviceTemplate({ slug, pascalName }: ModuleMeta) {
-  return `import type { ${pascalName}Response } from './${slug}.schema';
+  return `${LOOM_GENERATED_HEADER}import type { ${pascalName}Response } from './${slug}.schema';
 
 export const ${pascalName}Service = {
   getStatus(): ${pascalName}Response {
@@ -369,7 +475,7 @@ export const ${pascalName}Service = {
 }
 
 function controllerTemplate({ slug, pascalName, controllerName }: ModuleMeta) {
-  return `import { Elysia } from 'elysia';
+  return `${LOOM_GENERATED_HEADER}import { Elysia } from 'elysia';
 import { ${pascalName}Service } from './${slug}.service';
 import { ${pascalName}Schema } from './${slug}.schema';
 
@@ -378,6 +484,33 @@ export const ${controllerName} = new Elysia({ prefix: '/${slug}' })
     response: ${pascalName}Schema,
     detail: { summary: 'Get ${slug} status' }
   });
+`;
+}
+
+function moduleTestTemplate({ slug, pascalName, controllerName }: ModuleMeta) {
+  return `${LOOM_GENERATED_HEADER}import { describe, expect, test } from "bun:test";
+import { ${controllerName} } from "../../src/modules/${slug}/${slug}.controller";
+import { ${pascalName}Service } from "../../src/modules/${slug}/${slug}.service";
+
+describe("${slug} module", () => {
+  test("service returns status payload", () => {
+    const status = ${pascalName}Service.getStatus();
+
+    expect(status.message).toBe("Module ${slug} is functional");
+    expect(typeof status.timestamp).toBe("number");
+  });
+
+  test("GET /${slug} returns status payload", async () => {
+    const response = await ${controllerName}.handle(
+      new Request("http://localhost/${slug}")
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.message).toBe("Module ${slug} is functional");
+    expect(typeof body.timestamp).toBe("number");
+  });
+});
 `;
 }
 
@@ -495,6 +628,7 @@ export async function refreshSkeleton(ctx = createContext()) {
   const output = await createSkeletonOutput(ctx);
   const emitJson = ctx.emitJson || await pathExists(ctx, SKELETON_JSON_PATH);
 
+  await writeText(ctx, BRIEF_PATH, await createBrief(ctx, output));
   await writeText(ctx, SKELETON_MD_PATH, output.markdown);
 
   if (emitJson) {
@@ -506,6 +640,12 @@ export async function refreshSkeleton(ctx = createContext()) {
     : SKELETON_MD_PATH;
 
   ctx.log(`Skeleton map ${ctx.dryRun ? "planned" : "updated"} in ${paths}`);
+}
+
+export async function refreshBrief(ctx = createContext()) {
+  const output = await createSkeletonOutput(ctx);
+  await writeText(ctx, BRIEF_PATH, await createBrief(ctx, output));
+  ctx.log(`Brief context ${ctx.dryRun ? "planned" : "updated"} in ${BRIEF_PATH}`);
 }
 
 export async function createSkeleton(ctx = createContext(), generatedAt = new Date().toISOString()) {
@@ -569,6 +709,46 @@ async function createSkeletonOutput(ctx = createContext(), generatedAt = new Dat
       files
     }
   };
+}
+
+async function createBrief(
+  ctx = createContext(),
+  output: Awaited<ReturnType<typeof createSkeletonOutput>> | undefined = undefined,
+  generatedAt = new Date().toISOString()
+) {
+  const skeleton = output ?? await createSkeletonOutput(ctx, generatedAt);
+  const manifest = await readJsonIfExists<Record<string, string>>(ctx, MANIFEST_PATH);
+  const runtime = manifest?.runtime ?? "unknown";
+  const framework = manifest?.framework ?? "unknown";
+  const schema = manifest?.schema ?? "unknown";
+  const pattern = manifest?.pattern ?? "unknown";
+  const lines = [
+    "# LOOM BRIEF",
+    `Generated: ${skeleton.json.generatedAt}`,
+    "",
+    `Stack: ${runtime}/${framework}/${schema}/${pattern}`,
+    "Read: brief first; then skeleton.md OR skeleton.json, not both.",
+    "TDD: write/generate tests before behavior changes; strict doctor requires module tests.",
+    "CLI: g | route | test | s | s --json | brief | inspect | doctor | doctor --strict",
+    "",
+    "Modules:"
+  ];
+
+  if (skeleton.json.modules.length === 0) {
+    lines.push("- none");
+  }
+
+  for (const module of skeleton.json.modules) {
+    const hasTest = await pathExists(ctx, moduleTestPath(module.name));
+    lines.push(`- ${module.name} ${module.prefix} test:${hasTest ? "yes" : "no"} registered:${module.registered ? "yes" : "no"}`);
+
+    for (const route of module.routes) {
+      const response = route.response ? ` -> ${route.response}` : "";
+      lines.push(`  ${route.method.toUpperCase()} ${route.path}${response}`);
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
 }
 
 function buildSkeletonLines(content: string) {
@@ -797,7 +977,7 @@ function stripTrailingBody(line: string) {
   return line.replace(/\s*\{\s*$/, "").replace(/\s*;\s*$/, "");
 }
 
-export async function runDoctor(ctx = createContext()) {
+export async function runDoctor(ctx = createContext(), strict = false) {
   const issues: string[] = [];
   const warnings: string[] = [];
   const entry = await readTextIfExists(ctx, ENTRY_PATH);
@@ -849,6 +1029,10 @@ export async function runDoctor(ctx = createContext()) {
   auditManifest(manifest, pkg, issues, warnings);
   await auditSkeletonFreshness(ctx, issues);
 
+  if (strict) {
+    await auditStrictState(ctx, entry, issues);
+  }
+
   if (warnings.length > 0) {
     ctx.log(`Loom doctor warnings:\n- ${warnings.join("\n- ")}`);
   }
@@ -858,7 +1042,7 @@ export async function runDoctor(ctx = createContext()) {
     return 1;
   }
 
-  ctx.log("Loom doctor passed.");
+  ctx.log(`Loom doctor${strict ? " --strict" : ""} passed.`);
   return 0;
 }
 
@@ -887,6 +1071,85 @@ async function auditModules(ctx: LoomContext, entry: string | undefined, issues:
 
     if (!imported || !used) {
       issues.push(`Module [${name}] is not fully registered in ${ENTRY_PATH}.`);
+    }
+  }
+}
+
+async function auditStrictState(ctx: LoomContext, entry: string | undefined, issues: string[]) {
+  await auditRootAgentBootstraps(ctx, issues);
+  await auditProtocolCommandCoverage(ctx, issues);
+  await auditModuleTests(ctx, issues);
+  await auditGeneratedMarkers(ctx, issues);
+  auditIndexModuleImports(entry, issues);
+}
+
+async function auditRootAgentBootstraps(ctx: LoomContext, issues: string[]) {
+  for (const path of ["AGENT.md", "AGENTS.md", ".loom/AGENT.md"]) {
+    if (!(await pathExists(ctx, path))) {
+      issues.push(`Strict mode requires ${path}.`);
+    }
+  }
+}
+
+async function auditProtocolCommandCoverage(ctx: LoomContext, issues: string[]) {
+  const protocol = [
+    await readTextIfExists(ctx, ".loom/AGENT.md") ?? "",
+    await readTextIfExists(ctx, "AGENT.md") ?? "",
+    await readTextIfExists(ctx, "AGENTS.md") ?? ""
+  ].join("\n");
+
+  for (const command of EXPECTED_PROTOCOL_COMMANDS) {
+    if (!protocol.includes(command)) {
+      issues.push(`Protocol docs must mention ${command}.`);
+    }
+  }
+}
+
+async function auditModuleTests(ctx: LoomContext, issues: string[]) {
+  for (const name of await listModuleNames(ctx)) {
+    const path = moduleTestPath(name);
+
+    if (!(await pathExists(ctx, path))) {
+      issues.push(`Strict TDD gate requires module test: ${path}`);
+    }
+  }
+}
+
+async function auditGeneratedMarkers(ctx: LoomContext, issues: string[]) {
+  for (const name of await listModuleNames(ctx)) {
+    const files = moduleFiles(name);
+
+    for (const path of Object.values(files)) {
+      const content = await readTextIfExists(ctx, path);
+
+      if (content && !content.includes(LOOM_GENERATED_MARKER)) {
+        issues.push(`Generated module file missing ${LOOM_GENERATED_MARKER}: ${path}`);
+      }
+    }
+
+    const testPath = moduleTestPath(name);
+    const test = await readTextIfExists(ctx, testPath);
+
+    if (test && !test.includes(LOOM_GENERATED_MARKER)) {
+      issues.push(`Generated module test missing ${LOOM_GENERATED_MARKER}: ${testPath}`);
+    }
+  }
+}
+
+function auditIndexModuleImports(entry: string | undefined, issues: string[]) {
+  if (!entry) {
+    return;
+  }
+
+  const moduleImports = [...entry.matchAll(/^import\s+\{\s*(\w+)\s*\}\s+from\s+['"]\.\/modules\/([^'"]+)['"];?/gm)];
+  const loomImports = parseControllerImports(entry);
+  const loomImportSymbols = new Set(loomImports.map((registration) => registration.controllerName));
+
+  for (const match of moduleImports) {
+    const symbol = match[1];
+
+    if (!loomImportSymbols.has(symbol)) {
+      issues.push(`Manual module import detected in ${ENTRY_PATH}: ${match[0]}`);
     }
   }
 }
@@ -988,8 +1251,16 @@ function auditManifest(
 
 async function auditSkeletonFreshness(ctx: LoomContext, issues: string[]) {
   const expected = await createSkeletonOutput(ctx, "<ignored>");
+  const expectedBrief = await createBrief(ctx, expected);
+  const actualBrief = await readTextIfExists(ctx, BRIEF_PATH);
   const actualMarkdown = await readTextIfExists(ctx, SKELETON_MD_PATH);
   const actualJson = await readJsonIfExists<SkeletonContext>(ctx, SKELETON_JSON_PATH);
+
+  if (!actualBrief) {
+    issues.push(`${BRIEF_PATH} is missing. Run bun loom brief or bun loom s.`);
+  } else if (normalizeGeneratedMarkdown(actualBrief) !== expectedBrief) {
+    issues.push(`${BRIEF_PATH} is stale. Run bun loom brief or bun loom s.`);
+  }
 
   if (!actualMarkdown) {
     issues.push(`${SKELETON_MD_PATH} is missing. Run bun loom s.`);
@@ -1055,6 +1326,10 @@ function moduleFiles(slug: string) {
     service: `${MODULES_PATH}/${slug}/${slug}.service.ts`,
     schema: `${MODULES_PATH}/${slug}/${slug}.schema.ts`
   };
+}
+
+function moduleTestPath(slug: string) {
+  return `${MODULE_TESTS_PATH}/${slug}.test.ts`;
 }
 
 async function listModuleNames(ctx: LoomContext) {

@@ -32,6 +32,21 @@ beforeEach(async () => {
       pattern: "CSS"
     }, null, 2)
   );
+  const agentProtocol = `# Optimized Loom Protocol
+
+- bun loom g <name>
+- bun loom route <module> <method> <path>
+- bun loom test <module>
+- bun loom brief
+- bun loom inspect <module>
+- bun loom s
+- bun loom s --json
+- bun loom doctor
+- bun loom doctor --strict
+`;
+  await writeFile(join(root, ".loom", "AGENT.md"), agentProtocol);
+  await writeFile(join(root, "AGENT.md"), agentProtocol);
+  await writeFile(join(root, "AGENTS.md"), agentProtocol);
   await writeFile(
     join(root, "src", "index.ts"),
     `import { Elysia } from 'elysia';
@@ -72,8 +87,30 @@ describe("loom cli", () => {
     expect(routedController).toContain(".get('/ready'");
     expect(routedService).toContain("getReady(): InitTestResponse");
 
+    expect(await runLoom(["doctor", "--strict"], ctx)).toBe(1);
+    expect(await runLoom(["test", "init-test"], ctx)).toBe(0);
+    const generatedTest = await readFile(join(root, "tests", "modules", "init-test.test.ts"), "utf8");
+    expect(generatedTest).toContain("initTestController");
+    expect(generatedTest).toContain('new Request("http://localhost/init-test")');
+    expect(generatedTest).toContain("@loom-generated");
+    expect(await runLoom(["test", "init-test"], ctx)).toBe(1);
+    expect(await runLoom(["doctor", "--strict"], ctx)).toBe(0);
+
+    const logs: string[] = [];
+    expect(await runLoom(["inspect", "init-test"], {
+      root,
+      log: (message) => logs.push(message),
+      error: () => undefined
+    })).toBe(0);
+    expect(logs.join("\n")).toContain("Module: init-test");
+    expect(logs.join("\n")).toContain("GET /ready");
+
     expect(await runLoom(["s"], ctx)).toBe(0);
     expect(await runLoom(["doctor"], ctx)).toBe(0);
+
+    const brief = await readFile(join(root, ".loom", "context", "brief.md"), "utf8");
+    expect(brief).toContain("LOOM BRIEF");
+    expect(brief).toContain("init-test /init-test test:yes");
 
     const skeletonMarkdown = await readFile(join(root, ".loom", "context", "skeleton.md"), "utf8");
     expect(skeletonMarkdown).toContain("response: InitTestSchema,");
