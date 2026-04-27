@@ -346,6 +346,81 @@ describe("loom cli", () => {
     expect(logs.join("\n")).toContain("Loom doctor --strict passed.");
     expect(logs.join("\n")).toContain("No Bun tests found; skipping bun test.");
   });
+
+  test("rejects invalid commands, fields, routes, and resource specs", async () => {
+    const missingField = await runWithOutput(["make", "resource", "invalid-resource"]);
+    expect(missingField.code).toBe(1);
+    expect(missingField.errors).toContain("requires at least one --field");
+
+    const badId = await runWithOutput(["make", "resource", "bad-id", "--field", "id:boolean:readonly"]);
+    expect(badId.code).toBe(1);
+    expect(badId.errors).toContain("Resource id field must use uuid");
+
+    const badConstraint = await runWithOutput(["make", "resource", "bad-range", "--field", "name:string:min=10:max=1"]);
+    expect(badConstraint.code).toBe(1);
+    expect(badConstraint.errors).toContain("min greater than max");
+
+    const badRoute = await runWithOutput(["make", "resource", "bad-route", "--field", "name:string", "--route", "bad path"]);
+    expect(badRoute.code).toBe(1);
+    expect(badRoute.errors).toContain("Resource route prefix must start with /");
+
+    const missingFlag = await runWithOutput(["make", "resource", "missing-flag", "--field"]);
+    expect(missingFlag.code).toBe(1);
+    expect(missingFlag.errors).toContain("Missing value for --field");
+
+    const unsupportedRoute = await runWithOutput(["route", "missing", "trace", "/x"]);
+    expect(unsupportedRoute.code).toBe(1);
+    expect(unsupportedRoute.errors).toContain("Unsupported HTTP method");
+
+    const unknown = await runWithOutput(["unknown"]);
+    expect(unknown.code).toBe(1);
+    expect(unknown.logs).toContain("LOOM CLI");
+
+    const version = await runWithOutput(["--version"]);
+    expect(version.code).toBe(0);
+    expect(version.logs).toMatch(/\d+\.\d+\.\d+/);
+  });
+
+  test("doctor catches stale context, forbidden packages, and manual imports", async () => {
+    const ctx = silentContext();
+
+    expect(await runLoom(["g", "drift"], ctx)).toBe(0);
+    expect(await runLoom(["test", "drift"], ctx)).toBe(0);
+    expect(await runLoom(["sync"], ctx)).toBe(0);
+    expect(await runLoom(["doctor", "--strict"], ctx)).toBe(0);
+
+    const pkgPath = join(root, "package.json");
+    const pkg = JSON.parse(await readFile(pkgPath, "utf8"));
+    pkg.dependencies.zod = "latest";
+    await writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+
+    const forbiddenPackage = await runWithOutput(["doctor"]);
+    expect(forbiddenPackage.code).toBe(1);
+    expect(forbiddenPackage.errors).toContain("Forbidden package dependency detected: zod");
+
+    delete pkg.dependencies.zod;
+    await writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+
+    const servicePath = join(root, "src", "modules", "drift", "drift.service.ts");
+    const service = await readFile(servicePath, "utf8");
+    await writeFile(servicePath, `${service}\nexport const manualSignatureDrift = true;\n`);
+
+    const staleContext = await runWithOutput(["doctor"]);
+    expect(staleContext.code).toBe(1);
+    expect(staleContext.errors).toContain(".loom/context/skeleton.md is stale");
+    expect(staleContext.errors).toContain(".loom/context/skeleton.json is stale");
+
+    await writeFile(servicePath, service);
+    expect(await runLoom(["sync"], ctx)).toBe(0);
+
+    const indexPath = join(root, "src", "index.ts");
+    const index = await readFile(indexPath, "utf8");
+    await writeFile(indexPath, `import { rogue } from './modules/rogue';\n${index}`);
+
+    const manualImport = await runWithOutput(["doctor", "--strict"]);
+    expect(manualImport.code).toBe(1);
+    expect(manualImport.errors).toContain("Manual module import detected");
+  });
 });
 
 function silentContext() {
@@ -353,5 +428,21 @@ function silentContext() {
     root,
     log: () => undefined,
     error: () => undefined
+  };
+}
+
+async function runWithOutput(args: string[]) {
+  const logs: string[] = [];
+  const errors: string[] = [];
+  const code = await runLoom(args, {
+    root,
+    log: (message) => logs.push(message),
+    error: (message) => errors.push(message)
+  });
+
+  return {
+    code,
+    logs: logs.join("\n"),
+    errors: errors.join("\n")
   };
 }

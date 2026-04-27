@@ -79,6 +79,51 @@ describe("loom installer", () => {
     await expect(readFile(join(root, "tests", "loom.test.ts"), "utf8")).rejects.toThrow();
   });
 
+  test("dry-run reports writes without changing the target", async () => {
+    const logs: string[] = [];
+    const beforePackage = await readFile(join(root, "package.json"), "utf8");
+    const beforeIndex = await readFile(join(root, "src", "index.ts"), "utf8");
+
+    await installLoom({
+      target: root,
+      dryRun: true,
+      runCommands: false,
+      log: (message) => logs.push(message)
+    });
+
+    expect(logs.join("\n")).toContain("[dry-run] copy .loom/AGENT.md");
+    expect(logs.join("\n")).toContain("[dry-run] copy dist/loom.js -> scripts/loom.js");
+    expect(await readFile(join(root, "package.json"), "utf8")).toBe(beforePackage);
+    expect(await readFile(join(root, "src", "index.ts"), "utf8")).toBe(beforeIndex);
+    await expect(readFile(join(root, "scripts", "loom.js"), "utf8")).rejects.toThrow();
+  });
+
+  test("force reinstall is idempotent for scripts and anchors", async () => {
+    const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    pkg.scripts.prepare = "bun run custom";
+    await writeFile(join(root, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
+
+    await installLoom({
+      target: root,
+      runCommands: false,
+      log: () => undefined
+    });
+    await installLoom({
+      target: root,
+      force: true,
+      runCommands: false,
+      log: () => undefined
+    });
+
+    const updatedPackage = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    const index = await readFile(join(root, "src", "index.ts"), "utf8");
+
+    expect(updatedPackage.scripts.prepare).toBe("bun run hooks:install && bun run custom");
+    expect(updatedPackage.scripts.loom).toBe("bun run scripts/loom.js");
+    expect(count(index, "// [LOOM_IMPORT_ANCHOR]")).toBe(1);
+    expect(count(index, "// [LOOM_MODULE_ANCHOR]")).toBe(1);
+  });
+
   test("refuses to overwrite existing Loom files without force", async () => {
     await mkdir(join(root, ".loom"), { recursive: true });
     await writeFile(join(root, ".loom", "AGENT.md"), "custom");
@@ -88,6 +133,28 @@ describe("loom installer", () => {
       runCommands: false,
       log: () => undefined
     })).rejects.toThrow("Refusing to overwrite");
+  });
+
+  test("rejects invalid install targets and app entries", async () => {
+    const missingPackageRoot = await mkdtemp(join(tmpdir(), "loom-install-missing-package-"));
+
+    try {
+      await expect(installLoom({
+        target: missingPackageRoot,
+        runCommands: false,
+        log: () => undefined
+      })).rejects.toThrow("Target must contain package.json");
+    } finally {
+      await rm(missingPackageRoot, { recursive: true, force: true });
+    }
+
+    await writeFile(join(root, "src", "index.ts"), "export const app = {};\n");
+
+    await expect(installLoom({
+      target: root,
+      runCommands: false,
+      log: () => undefined
+    })).rejects.toThrow("src/index.ts must contain .listen");
   });
 
   test("runs canonical sync and check during install", async () => {
@@ -105,3 +172,7 @@ describe("loom installer", () => {
     expect(await readFile(join(root, ".loom", "context", "skeleton.json"), "utf8")).toContain("generatedAt");
   });
 });
+
+function count(value: string, needle: string) {
+  return value.split(needle).length - 1;
+}
