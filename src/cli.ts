@@ -4,7 +4,7 @@
  */
 
 import { VERSION } from "./lib/constants";
-import { generateCoreArtifact, initSwagger, removeCoreArtifact } from "./generators/core";
+import { generateCoreArtifact, initAuth, initEnv, initObservability, initSwagger, removeCoreArtifact } from "./generators/core";
 import type { CoreArtifactKind } from "./generators/core-templates";
 import { syncContext } from "./engine/context";
 import { refreshBrief, refreshSkeleton } from "./engine/context";
@@ -28,7 +28,7 @@ const CORE_ARTIFACT_KINDS = new Set<string>(["guard", "middleware", "hook", "plu
 export async function runLoom(argv: string[], options: Partial<LoomContext> = {}) {
   const baseCtx = createContext(options);
 
-  if (argv.includes("--version") || argv.includes("-V")) {
+  if (argv.includes("--version")) {
     baseCtx.log(VERSION);
     return 0;
   }
@@ -42,22 +42,14 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
     });
 
     switch (parsed.command) {
-      case "i":
       case "init":
         await runInitCommand(parsed, ctx);
         return 0;
 
-      case "m":
-      case "make":
-        await runMakeCommand(parsed, ctx);
-        return 0;
-
-      case "g":
       case "generate":
-        await requireModuleName(parsed.args[0], (meta) => generateModule(meta, ctx));
+        await runGenerateCommand(parsed, ctx);
         return 0;
 
-      case "r":
       case "remove":
         await runRemoveCommand(parsed, ctx);
         return 0;
@@ -103,7 +95,6 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
         await requireModuleName(parsed.args[0], (meta) => inspectModule(meta, ctx));
         return 0;
 
-      case "s":
       case "skeleton":
         await refreshSkeleton(ctx);
         return 0;
@@ -111,12 +102,11 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
       case "doctor":
         return await runDoctor(ctx, parsed.strict);
 
-      case "list":
       case "help":
       case undefined:
       default:
         printHelp(ctx);
-        return ["help", "list", undefined].includes(parsed.command) ? 0 : 1;
+        return ["help", undefined].includes(parsed.command) ? 0 : 1;
     }
   } catch (error) {
     if (error instanceof LoomError) {
@@ -129,10 +119,10 @@ export async function runLoom(argv: string[], options: Partial<LoomContext> = {}
 }
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const dryRunFlags = new Set(["--dry-run", "-n"]);
-  const jsonFlags = new Set(["--json", "--with-json"]);
+  const dryRunFlags = new Set(["--dry-run"]);
+  const jsonFlags = new Set(["--json"]);
   const strictFlags = new Set(["--strict"]);
-  const fieldFlags = new Set(["--field", "-f"]);
+  const fieldFlags = new Set(["--field"]);
   const positional: string[] = [];
   const fields: string[] = [];
   let dryRun = false;
@@ -186,12 +176,12 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
 
-    if (arg === "--test" || arg === "--spec") {
+    if (arg === "--test") {
       test = true;
       continue;
     }
 
-    if (arg === "--no-test" || arg === "--no-spec") {
+    if (arg === "--no-test") {
       noTest = true;
       continue;
     }
@@ -231,14 +221,16 @@ Usage: bun loom <command> [args]
 
 Commands:
   init swagger              Wire @elysiajs/swagger into src/index.ts
-  make module <name>        Create a CSS module and auto-register it
-  make resource <name>      Create typed CRUD resource from --field flags
-  make guard <name>         Create an Elysia guard (derive/resolve plugin)
-  make middleware <name>    Create an Elysia lifecycle middleware plugin
-  make hook <name>          Create an Elysia macro hook plugin
-  make plugin <name>        Create a generic Elysia plugin
-  g, generate <name>        Create a CSS module and auto-register it
-  r, remove <name>          Remove a generated module or core artifact
+  init env                  Add validated env plugin preset
+  init auth                 Add auth plugin + auth guard preset
+  init observability        Add logger/observability plugin preset
+  generate module <name>    Create a CSS module and auto-register it
+  generate resource <name>  Create typed CRUD resource from --field flags
+  generate guard <name>     Create an Elysia guard (derive/resolve plugin)
+  generate middleware <n>   Create an Elysia lifecycle middleware plugin
+  generate hook <name>      Create an Elysia macro hook plugin
+  generate plugin <name>    Create a generic Elysia plugin
+  remove <name>             Remove a generated module or core artifact
   route <mod> <method> <p>  Add a service-backed route to a module
   test <module>             Generate Bun tests for a CSS module
   sync                      Refresh brief, skeleton.md, and skeleton.json
@@ -250,19 +242,19 @@ Commands:
   dev                       Run bun run dev
   brief                     Refresh the ultra-small agent context
   inspect <module>          Print one module's compact context
-  s, skeleton               Refresh the Markdown context map
+  skeleton                  Refresh the Markdown context map
   doctor                    Audit Loom drift and registration health
-  list, help                Show this menu
+  help                      Show this menu
 
 Flags:
-  --version, -V             Print Loom CLI version
-  --dry-run, -n             Print planned writes without changing files
-  --json, --with-json       Write both skeleton.md and skeleton.json
-  --field, -f <spec>        Resource field: name:type:required:min=1
+  --version                 Print Loom CLI version
+  --dry-run                 Print planned writes without changing files
+  --json                    Write both skeleton.md and skeleton.json
+  --field <spec>            Resource field: name:type:required:min=1
   --from <path>             Read resource spec JSON
   --route <path>            Resource route prefix override
   --strict                  Enforce TDD and state-management gates in doctor
-  --no-test                 Skip test generation for make resource/guard/etc
+  --no-test                 Skip test generation for generated artifacts
 `);
 }
 
@@ -274,15 +266,27 @@ async function runInitCommand(parsed: ParsedArgs, ctx: LoomContext) {
       await initSwagger(ctx);
       return;
 
+    case "env":
+      await initEnv(ctx);
+      return;
+
+    case "auth":
+      await initAuth(ctx);
+      return;
+
+    case "observability":
+      await initObservability(ctx);
+      return;
+
     case undefined:
-      throw new LoomError("Usage: bun loom init <swagger>");
+      throw new LoomError("Usage: bun loom init <swagger|env|auth|observability>");
 
     default:
       throw new LoomError(`Unsupported init target [${target}].`);
   }
 }
 
-async function runMakeCommand(parsed: ParsedArgs, ctx: LoomContext) {
+async function runGenerateCommand(parsed: ParsedArgs, ctx: LoomContext) {
   const [kind, name] = parsed.args;
 
   if (kind && CORE_ARTIFACT_KINDS.has(kind)) {
@@ -308,10 +312,10 @@ async function runMakeCommand(parsed: ParsedArgs, ctx: LoomContext) {
       return;
 
     case undefined:
-      throw new LoomError("Usage: bun loom make <module|resource|guard|middleware|hook|plugin> <name>");
+      throw new LoomError("Usage: bun loom generate <module|resource|guard|middleware|hook|plugin> <name>");
 
     default:
-      throw new LoomError(`Unsupported make target [${kind}].`);
+      throw new LoomError(`Unsupported generate target [${kind}].`);
   }
 }
 

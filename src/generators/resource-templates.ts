@@ -40,6 +40,7 @@ export const ${pascalName}DeleteSchema = t.Object({
 });
 
 export const ${pascalName}ErrorSchema = t.Object({
+  code: t.String(),
   error: t.String()
 });
 
@@ -69,13 +70,18 @@ export function resourceServiceTemplate(spec: ResourceSpec) {
 const ${fixtureName}: ${pascalName} = ${objectLiteral(spec.fields)};
 
 // TODO: Replace with database adapter
-const ${storeName}: ${pascalName}[] = [{ ...${fixtureName} }];
+const seed${pascalName} = (): ${pascalName}[] => [{ ...${fixtureName} }];
+let ${storeName}: ${pascalName}[] = seed${pascalName}();
 
 function next${pascalName}Id(): ${pascalName}["id"] {
   return ${nextIdExpression};
 }
 
 export const ${pascalName}Service = {
+  reset(): void {
+    ${storeName} = seed${pascalName}();
+  },
+
   list(): ${pascalName}[] {
     return [...${storeName}];
   },
@@ -132,6 +138,7 @@ export const ${pascalName}Service = {
 
 export function resourceControllerTemplate(spec: ResourceSpec) {
   const { slug, pascalName, controllerName } = spec.meta;
+  const notFoundMessage = `${pascalName} not found`;
 
   return `${LOOM_GENERATED_HEADER}import { Elysia } from 'elysia';
 import { ${pascalName}Service } from './${slug}.service';
@@ -150,12 +157,17 @@ export const ${controllerName} = new Elysia({ prefix: '${spec.routePrefix}' })
     response: ${pascalName}ListSchema,
     detail: { summary: 'List ${slug}' }
   })
-  .post('/', ({ body }) => ${pascalName}Service.create(body), {
+  .post('/', ({ body, set }) => {
+    set.status = 201;
+    return ${pascalName}Service.create(body);
+  }, {
     body: Create${pascalName}Schema,
-    response: ${pascalName}Schema,
+    response: {
+      201: ${pascalName}Schema
+    },
     detail: { summary: 'Create ${slug}' }
   })
-  .get('/:id', ({ params, status }) => ${pascalName}Service.get(params.id) ?? status(404, { error: '${pascalName} not found' }), {
+  .get('/:id', ({ params, status }) => ${pascalName}Service.get(params.id) ?? status(404, { code: 'NOT_FOUND', error: '${notFoundMessage}' }), {
     params: ${pascalName}ParamsSchema,
     response: {
       200: ${pascalName}Schema,
@@ -163,7 +175,7 @@ export const ${controllerName} = new Elysia({ prefix: '${spec.routePrefix}' })
     },
     detail: { summary: 'Get ${slug} by id' }
   })
-  .patch('/:id', ({ params, body, status }) => ${pascalName}Service.update(params.id, body) ?? status(404, { error: '${pascalName} not found' }), {
+  .patch('/:id', ({ params, body, status }) => ${pascalName}Service.update(params.id, body) ?? status(404, { code: 'NOT_FOUND', error: '${notFoundMessage}' }), {
     params: ${pascalName}ParamsSchema,
     body: Update${pascalName}Schema,
     response: {
@@ -172,7 +184,7 @@ export const ${controllerName} = new Elysia({ prefix: '${spec.routePrefix}' })
     },
     detail: { summary: 'Update ${slug} by id' }
   })
-  .delete('/:id', ({ params, status }) => ${pascalName}Service.remove(params.id) ?? status(404, { error: '${pascalName} not found' }), {
+  .delete('/:id', ({ params, status }) => ${pascalName}Service.remove(params.id) ?? status(404, { code: 'NOT_FOUND', error: '${notFoundMessage}' }), {
     params: ${pascalName}ParamsSchema,
     response: {
       200: ${pascalName}DeleteSchema,
@@ -187,11 +199,15 @@ export function resourceTestTemplate(spec: ResourceSpec) {
   const { slug, pascalName, controllerName } = spec.meta;
   const createPayload = objectLiteral(spec.createFields);
   const idValue = fieldFixtureValue(spec.idField);
+  const missingIdValue = missingFixtureValue(spec.idField);
   const createAssertions = spec.createFields
     .map((field) => `    expect(body.${field.name}).toEqual(createPayload.${field.name});`)
     .join("\n");
+  const notFoundMessage = `${pascalName} not found`;
+  const patchInvalidBody = invalidFieldLiteral(spec.createFields[0]);
+  const constraintTests = constraintTestLines(spec);
 
-  return `${LOOM_GENERATED_HEADER}import { describe, expect, test } from "bun:test";
+  return `${LOOM_GENERATED_HEADER}import { beforeEach, describe, expect, test } from "bun:test";
 import { ${controllerName} } from "../../src/modules/${slug}/${slug}.controller";
 import { ${pascalName}Service } from "../../src/modules/${slug}/${slug}.service";
 import type { Create${pascalName}Input } from "../../src/modules/${slug}/${slug}.schema";
@@ -199,50 +215,212 @@ import type { Create${pascalName}Input } from "../../src/modules/${slug}/${slug}
 const createPayload: Create${pascalName}Input = ${createPayload};
 
 describe("${slug} resource", () => {
-  test("service creates typed resource payload", () => {
-    const created = ${pascalName}Service.create(createPayload);
-
-    expect(created.id).toBeDefined();
-${spec.createFields.map((field) => `    expect(created.${field.name}).toEqual(createPayload.${field.name});`).join("\n")}
+  beforeEach(() => {
+    ${pascalName}Service.reset();
   });
 
-  test("GET ${spec.routePrefix} lists resources", async () => {
-    const response = await ${controllerName}.handle(
-      new Request("http://localhost${spec.routePrefix}")
-    );
-    const body = await response.json();
+  describe("CRUD happy path", () => {
+    test("service creates typed resource payload", () => {
+      const created = ${pascalName}Service.create(createPayload);
 
-    expect(response.status).toBe(200);
-    expect(Array.isArray(body)).toBe(true);
-  });
+      expect(created.id).toBeDefined();
+${spec.createFields.map((field) => `      expect(created.${field.name}).toEqual(createPayload.${field.name});`).join("\n")}
+    });
 
-  test("POST ${spec.routePrefix} validates body and returns resource", async () => {
-    const response = await ${controllerName}.handle(
-      new Request("http://localhost${spec.routePrefix}", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(createPayload)
-      })
-    );
-    const body = await response.json();
+    test("GET ${spec.routePrefix} lists resources", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}")
+      );
+      const body = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(body.id).toBeDefined();
+      expect(response.status).toBe(200);
+      expect(Array.isArray(body)).toBe(true);
+      expect(body.length).toBeGreaterThan(0);
+    });
+
+    test("POST ${spec.routePrefix} validates body and returns resource", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(createPayload)
+        })
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(201);
+      expect(body.id).toBeDefined();
 ${createAssertions}
+    });
+
+    test("GET ${spec.routePrefix}/:id returns seeded resource", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}/${trimLiteralQuotes(idValue)}")
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.id).toEqual(${idValue});
+    });
+
+    test("PATCH ${spec.routePrefix}/:id updates resource fields", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}/${trimLiteralQuotes(idValue)}", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(createPayload)
+        })
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+${createAssertions}
+    });
+
+    test("DELETE ${spec.routePrefix}/:id returns delete payload", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}/${trimLiteralQuotes(idValue)}", {
+          method: "DELETE"
+        })
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.ok).toBe(true);
+    });
   });
 
-  test("DELETE ${spec.routePrefix}/:id returns delete payload", async () => {
-    const response = await ${controllerName}.handle(
-      new Request("http://localhost${spec.routePrefix}/${trimLiteralQuotes(idValue)}", {
-        method: "DELETE"
-      })
-    );
-    const body = await response.json();
+  describe("error handling", () => {
+    test("GET ${spec.routePrefix}/:id returns 404 for missing resource", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}/${trimLiteralQuotes(missingIdValue)}")
+      );
+      const body = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(body.ok).toBe(true);
+      expect(response.status).toBe(404);
+      expect(body.code).toBe("NOT_FOUND");
+      expect(body.error).toBe("${notFoundMessage}");
+    });
+
+    test("PATCH ${spec.routePrefix}/:id returns 404 for missing resource", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}/${trimLiteralQuotes(missingIdValue)}", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(createPayload)
+        })
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(body.code).toBe("NOT_FOUND");
+      expect(body.error).toBe("${notFoundMessage}");
+    });
+
+    test("DELETE ${spec.routePrefix}/:id returns 404 for missing resource", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}/${trimLiteralQuotes(missingIdValue)}", {
+          method: "DELETE"
+        })
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(body.code).toBe("NOT_FOUND");
+      expect(body.error).toBe("${notFoundMessage}");
+    });
+
+    test("POST ${spec.routePrefix} rejects invalid body", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ invalid: true })
+        })
+      );
+
+      expect(response.status).not.toBe(201);
+      expect(response.status).toBeGreaterThanOrEqual(400);
+    });
+
+    test("PATCH ${spec.routePrefix}/:id rejects invalid body", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}/${trimLiteralQuotes(idValue)}", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ${spec.createFields[0].name}: ${patchInvalidBody} })
+        })
+      );
+
+      expect(response.status).not.toBe(200);
+      expect(response.status).toBeGreaterThanOrEqual(400);
+    });
   });
-});
+
+  describe("data integrity lifecycle", () => {
+    test("create, read, update, delete, and verify missing", async () => {
+      const createResponse = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(createPayload)
+        })
+      );
+      const created = await createResponse.json();
+
+      expect(createResponse.status).toBe(201);
+      expect(created.id).toBeDefined();
+${createAssertions.replaceAll("body.", "created.")}
+
+      const readResponse = await ${controllerName}.handle(
+        new Request(\`http://localhost${spec.routePrefix}/\${created.id}\`)
+      );
+      const fetched = await readResponse.json();
+
+      expect(readResponse.status).toBe(200);
+      expect(fetched.id).toEqual(created.id);
+${spec.createFields.map((field) => `      expect(fetched.${field.name}).toEqual(createPayload.${field.name});`).join("\n")}
+
+      const updateResponse = await ${controllerName}.handle(
+        new Request(\`http://localhost${spec.routePrefix}/\${created.id}\`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(createPayload)
+        })
+      );
+      const updated = await updateResponse.json();
+
+      expect(updateResponse.status).toBe(200);
+${spec.createFields.map((field) => `      expect(updated.${field.name}).toEqual(createPayload.${field.name});`).join("\n")}
+
+      const reReadResponse = await ${controllerName}.handle(
+        new Request(\`http://localhost${spec.routePrefix}/\${created.id}\`)
+      );
+      const persisted = await reReadResponse.json();
+
+      expect(reReadResponse.status).toBe(200);
+${spec.createFields.map((field) => `      expect(persisted.${field.name}).toEqual(createPayload.${field.name});`).join("\n")}
+
+      const deleteResponse = await ${controllerName}.handle(
+        new Request(\`http://localhost${spec.routePrefix}/\${created.id}\`, {
+          method: "DELETE"
+        })
+      );
+      const deleted = await deleteResponse.json();
+
+      expect(deleteResponse.status).toBe(200);
+      expect(deleted.ok).toBe(true);
+
+      const missingResponse = await ${controllerName}.handle(
+        new Request(\`http://localhost${spec.routePrefix}/\${created.id}\`)
+      );
+      const missing = await missingResponse.json();
+
+      expect(missingResponse.status).toBe(404);
+      expect(missing.code).toBe("NOT_FOUND");
+    });
+  });
+${constraintTests}});
 `;
 }
 
@@ -383,6 +561,23 @@ function nextIdExpressionFor(field: ResourceField, storeName: string, pascalName
   }
 }
 
+function missingFixtureValue(field: ResourceField): string {
+  switch (field.type.kind) {
+    case "uuid":
+      return JSON.stringify("00000000-0000-4000-8000-999999999999");
+
+    case "integer":
+    case "number":
+      return String(999999);
+
+    case "string":
+      return JSON.stringify("missing-resource");
+
+    default:
+      return JSON.stringify("missing-resource");
+  }
+}
+
 function fixtureForType(type: ResourceFieldType, fieldName: string, constraints: Record<string, string>): string {
   switch (type.kind) {
     case "string":
@@ -450,4 +645,187 @@ function constrainedNumber(base: number, constraints: Record<string, string>) {
   }
 
   return value;
+}
+
+function invalidFieldLiteral(field: ResourceField): string {
+  switch (field.type.kind) {
+    case "string":
+    case "email":
+    case "url":
+    case "date":
+    case "uuid":
+      return "12345";
+
+    case "number":
+    case "integer":
+      return "\"not-a-number\"";
+
+    case "boolean":
+      return "\"not-a-boolean\"";
+
+    case "enum":
+      return "12345";
+
+    case "json":
+      return "\"not-json\"";
+
+    case "array":
+      return "\"not-an-array\"";
+
+    default:
+      return "12345";
+  }
+}
+
+function belowMinLiteral(field: ResourceField): string | undefined {
+  const min = Number(field.constraints.minLength ?? field.constraints.min);
+
+  if (!Number.isFinite(min)) {
+    return undefined;
+  }
+
+  switch (field.type.kind) {
+    case "string":
+      return min <= 1 ? JSON.stringify("") : JSON.stringify("x".repeat(min - 1));
+
+    case "number":
+    case "integer":
+      return String(min - 1);
+
+    default:
+      return undefined;
+  }
+}
+
+function aboveMaxLiteral(field: ResourceField): string | undefined {
+  const max = Number(field.constraints.maxLength ?? field.constraints.max);
+
+  if (!Number.isFinite(max)) {
+    return undefined;
+  }
+
+  switch (field.type.kind) {
+    case "string":
+      return JSON.stringify("x".repeat(max + 1));
+
+    case "number":
+    case "integer":
+      return String(max + 1);
+
+    default:
+      return undefined;
+  }
+}
+
+function invalidFormatLiteral(field: ResourceField): string | undefined {
+  switch (field.type.kind) {
+    case "email":
+      return JSON.stringify("not-an-email");
+
+    case "url":
+      return JSON.stringify("not-a-url");
+
+    default:
+      return undefined;
+  }
+}
+
+function constraintTestLines(spec: ResourceSpec): string {
+  const { controllerName } = spec.meta;
+  const tests: string[] = [];
+
+  for (const field of spec.createFields) {
+    const below = belowMinLiteral(field);
+
+    if (below !== undefined) {
+      const constraintName = field.type.kind === "string" ? "minLength" : "minimum";
+      tests.push(`
+    test("POST ${spec.routePrefix} rejects ${field.name} below ${constraintName}", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...createPayload, ${field.name}: ${below} })
+        })
+      );
+
+      expect(response.status).toBeGreaterThanOrEqual(400);
+    });`);
+    }
+
+    const above = aboveMaxLiteral(field);
+
+    if (above !== undefined) {
+      const constraintName = field.type.kind === "string" ? "maxLength" : "maximum";
+      tests.push(`
+    test("POST ${spec.routePrefix} rejects ${field.name} above ${constraintName}", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...createPayload, ${field.name}: ${above} })
+        })
+      );
+
+      expect(response.status).toBeGreaterThanOrEqual(400);
+    });`);
+    }
+
+    if (field.type.kind === "enum") {
+      tests.push(`
+    test("POST ${spec.routePrefix} rejects invalid enum value for ${field.name}", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...createPayload, ${field.name}: "__invalid__" })
+        })
+      );
+
+      expect(response.status).toBeGreaterThanOrEqual(400);
+    });`);
+    }
+
+    const format = invalidFormatLiteral(field);
+
+    if (format !== undefined) {
+      tests.push(`
+    test("POST ${spec.routePrefix} rejects invalid ${field.type.kind} format for ${field.name}", async () => {
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...createPayload, ${field.name}: ${format} })
+        })
+      );
+
+      expect(response.status).toBeGreaterThanOrEqual(400);
+    });`);
+    }
+
+    if (!field.required) {
+      tests.push(`
+    test("POST ${spec.routePrefix} accepts missing optional field ${field.name}", async () => {
+      const { ${field.name}: _omitted, ...withoutField } = createPayload as Record<string, unknown>;
+      const response = await ${controllerName}.handle(
+        new Request("http://localhost${spec.routePrefix}", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(withoutField)
+        })
+      );
+
+      expect(response.status).toBe(201);
+    });`);
+    }
+  }
+
+  if (tests.length === 0) {
+    return "";
+  }
+
+  return `
+  describe("field validation", () => {${tests.join("\n")}
+  });
+`;
 }

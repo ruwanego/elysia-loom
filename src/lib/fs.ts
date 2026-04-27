@@ -74,7 +74,12 @@ export async function writeText(ctx: LoomContext, path: string, content: string)
   }
 
   const absolutePath = resolvePath(ctx, path);
-  await mkdir(dirname(absolutePath), { recursive: true });
+  const parent = dirname(absolutePath);
+
+  if (parent !== ".") {
+    await mkdir(parent, { recursive: true });
+  }
+
   await Bun.write(absolutePath, content);
 }
 

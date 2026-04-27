@@ -63,7 +63,7 @@ export async function installLoom(options: Partial<InstallOptions> & { target: s
 
   if (config.runCommands && !config.dryRun) {
     if (config.health) {
-      await runTargetCommand(config, ["bun", "loom", "make", "module", "health"]);
+      await runTargetCommand(config, ["bun", "loom", "generate", "module", "health"]);
       await runTargetCommand(config, ["bun", "loom", "test", "health"]);
     }
 

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
-import { installLoom } from "../src/installer";
-import { runLoom } from "../src/loom";
+import { installLoom } from "../../src/installer";
+import { runLoom } from "../../src/loom";
 
-const repoRoot = resolve(import.meta.dir, "..");
+const repoRoot = resolve(import.meta.dir, "..", "..");
 const tmpRoot = join(repoRoot, ".tmp");
 
 let target = "";
@@ -67,7 +67,7 @@ describe("loom target app e2e", () => {
     expect(installedIndex).toContain("// [LOOM_MODULE_ANCHOR]");
     expect(await readFile(join(target, ".loom", "context", "skeleton.json"), "utf8")).toContain("generatedAt");
     expect(await readFile(join(target, "tests", "modules", "health.test.ts"), "utf8")).toContain("healthController");
-    expect(logs.join("\n")).toContain("> bun loom make module health");
+    expect(logs.join("\n")).toContain("> bun loom generate module health");
     expect(logs.join("\n")).toContain("> bun loom test health");
     expect(logs.join("\n")).toContain("> bun loom sync");
     expect(logs.join("\n")).toContain("> bun loom check");
@@ -75,8 +75,8 @@ describe("loom target app e2e", () => {
     const help = await expectTargetCommand(["help"]);
     expect(help.output).toContain("Usage: bun loom <command> [args]");
 
-    const list = await expectTargetCommand(["list"]);
-    expect(list.output).toContain("make resource <name>");
+    const helpMenu = await expectTargetCommand(["help"]);
+    expect(helpMenu.output).toContain("generate resource <name>");
 
     const initialInfo = await expectTargetCommand(["info"]);
     expect(initialInfo.output).toContain("Modules: 1");
@@ -91,20 +91,20 @@ describe("loom target app e2e", () => {
     await expectTargetCommand(["doctor"]);
     await expectTargetCommand(["doctor", "--strict"]);
     await expectTargetCommand(["brief"]);
-    await expectTargetCommand(["s", "--json"]);
+    await expectTargetCommand(["skeleton", "--json"]);
     await expectTargetCommand(["sync"]);
 
     const plannedModule = await expectTargetCommand(["plan", "module", "planned-module"]);
     expect(plannedModule.output).toContain("[dry-run] write src/modules/planned-module/planned-module.schema.ts");
 
-    await expectTargetCommand(["g", "audit-log"]);
+    await expectTargetCommand(["generate", "module", "audit-log"]);
     await expectTargetCommand(["route", "audit-log", "get", "/ready"]);
     await expectTargetCommand(["test", "audit-log"]);
 
     const auditInspect = await expectTargetCommand(["inspect", "audit-log"]);
     expect(auditInspect.output).toContain("GET /ready");
 
-    await expectTargetCommand(["make", "module", "reports"]);
+    await expectTargetCommand(["generate", "module", "reports"]);
     await expectTargetCommand(["test", "reports"]);
 
     await mkdir(join(target, ".loom", "specs"), { recursive: true });
@@ -126,7 +126,7 @@ describe("loom target app e2e", () => {
     expect(validatedResource.output).toContain("Resource spec valid: posts");
 
     await expectTargetCommand([
-      "make",
+      "generate",
       "resource",
       "users",
       "--field",
@@ -146,7 +146,7 @@ describe("loom target app e2e", () => {
     expect(info.output).toContain("Modules: 4");
 
     await expectTargetCommand(["check"]);
-    await expectTargetCommand(["r", "audit-log"]);
+    await expectTargetCommand(["remove", "audit-log"]);
     await expectTargetCommand(["doctor", "--strict"]);
     await expectTargetCommand(["check"]);
 

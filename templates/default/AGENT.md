@@ -11,12 +11,12 @@ Before any task:
 
 Loom rules that must not be missed:
 
-- Create modules with `bun loom make module <name>` or `bun loom g <name>`.
-- Create typed CRUD resources with `bun loom make resource <name> --field <name:type>`.
-- Create guards with `bun loom make guard <name>`.
-- Create middleware with `bun loom make middleware <name>`.
-- Create hooks with `bun loom make hook <name>`.
-- Create plugins with `bun loom make plugin <name>`.
+- Create modules with `bun loom generate module <name>`.
+- Create typed CRUD resources with `bun loom generate resource <name> --field <name:type>`.
+- Create guards with `bun loom generate guard <name>`.
+- Create middleware with `bun loom generate middleware <name>`.
+- Create hooks with `bun loom generate hook <name>`.
+- Create plugins with `bun loom generate plugin <name>`.
 - Wire OpenAPI docs with `bun loom init swagger`.
 - Preview typed CRUD generation with `bun loom plan resource <name> --from <path>`.
 - Validate typed CRUD specs with `bun loom validate resource <name> --from <path>`.

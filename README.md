@@ -19,11 +19,14 @@ bun run loom:install ./my-elysia-app --health
 ## Target App Commands
 
 ```bash
-bun loom make module users
-bun loom make resource users --field email:email:required
-bun loom make guard auth
-bun loom make plugin db
+bun loom generate module users
+bun loom generate resource users --field email:email:required
+bun loom generate guard auth
+bun loom generate plugin db
 bun loom init swagger
+bun loom init env
+bun loom init auth
+bun loom init observability
 bun loom plan resource users --from .loom/specs/users.resource.json
 bun loom validate resource users --from .loom/specs/users.resource.json
 bun loom routes

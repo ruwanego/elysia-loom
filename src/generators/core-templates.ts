@@ -10,9 +10,11 @@ import type { ModuleMeta } from "../lib/types";
 export type CoreArtifactKind = "guard" | "middleware" | "hook" | "plugin";
 
 export function guardTemplate({ slug, pascalName }: ModuleMeta) {
+  const name = camelCase(slug);
+
   return `${LOOM_GENERATED_HEADER}import { Elysia } from 'elysia';
 
-export const ${slug}Guard = new Elysia({ name: 'guard/${slug}' })
+export const ${name}Guard = new Elysia({ name: 'guard/${slug}' })
   .onBeforeHandle({ as: 'scoped' }, ({ headers, set }) => {
     // TODO: Implement ${slug} guard logic
     // Return a value to short-circuit the request (e.g. 401)
@@ -26,13 +28,15 @@ export const ${slug}Guard = new Elysia({ name: 'guard/${slug}' })
 }
 
 export function guardTestTemplate({ slug, pascalName }: ModuleMeta) {
+  const name = camelCase(slug);
+
   return `${LOOM_GENERATED_HEADER}import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
-import { ${slug}Guard } from "../../src/core/guards/${slug}.guard";
+import { ${name}Guard } from "../../src/core/guards/${slug}.guard";
 
 describe("${slug} guard", () => {
   const app = new Elysia()
-    .use(${slug}Guard)
+    .use(${name}Guard)
     .get("/test", () => "ok");
 
   test("allows valid requests", async () => {
@@ -47,9 +51,11 @@ describe("${slug} guard", () => {
 }
 
 export function middlewareTemplate({ slug, pascalName }: ModuleMeta) {
+  const name = camelCase(slug);
+
   return `${LOOM_GENERATED_HEADER}import { Elysia } from 'elysia';
 
-export const ${slug}Middleware = new Elysia({ name: 'middleware/${slug}' })
+export const ${name}Middleware = new Elysia({ name: 'middleware/${slug}' })
   .onRequest(({ request }) => {
     // TODO: Implement ${slug} middleware logic
     console.log(\`→ \${request.method} \${new URL(request.url).pathname}\`);
@@ -58,13 +64,15 @@ export const ${slug}Middleware = new Elysia({ name: 'middleware/${slug}' })
 }
 
 export function middlewareTestTemplate({ slug, pascalName }: ModuleMeta) {
+  const name = camelCase(slug);
+
   return `${LOOM_GENERATED_HEADER}import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
-import { ${slug}Middleware } from "../../src/core/middleware/${slug}.middleware";
+import { ${name}Middleware } from "../../src/core/middleware/${slug}.middleware";
 
 describe("${slug} middleware", () => {
   const app = new Elysia()
-    .use(${slug}Middleware)
+    .use(${name}Middleware)
     .get("/test", () => "ok");
 
   test("passes requests through", async () => {
@@ -79,9 +87,11 @@ describe("${slug} middleware", () => {
 }
 
 export function hookTemplate({ slug, pascalName }: ModuleMeta) {
+  const name = camelCase(slug);
+
   return `${LOOM_GENERATED_HEADER}import { Elysia } from 'elysia';
 
-export const ${slug}Hook = new Elysia({ name: 'hook/${slug}' })
+export const ${name}Hook = new Elysia({ name: 'hook/${slug}' })
   .macro(({ onBeforeHandle }) => ({
     ${camelCase(slug)}(enabled: boolean) {
       if (!enabled) return;
@@ -97,13 +107,15 @@ export const ${slug}Hook = new Elysia({ name: 'hook/${slug}' })
 }
 
 export function hookTestTemplate({ slug, pascalName }: ModuleMeta) {
+  const name = camelCase(slug);
+
   return `${LOOM_GENERATED_HEADER}import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
-import { ${slug}Hook } from "../../src/core/hooks/${slug}.hook";
+import { ${name}Hook } from "../../src/core/hooks/${slug}.hook";
 
 describe("${slug} hook", () => {
   const app = new Elysia()
-    .use(${slug}Hook)
+    .use(${name}Hook)
     .get("/test", () => "ok", { ${camelCase(slug)}: true });
 
   test("hook is applied to route", async () => {
@@ -118,9 +130,11 @@ describe("${slug} hook", () => {
 }
 
 export function pluginTemplate({ slug, pascalName }: ModuleMeta) {
+  const name = camelCase(slug);
+
   return `${LOOM_GENERATED_HEADER}import { Elysia } from 'elysia';
 
-export const ${slug}Plugin = new Elysia({ name: 'plugin/${slug}' })
+export const ${name}Plugin = new Elysia({ name: 'plugin/${slug}' })
   .decorate('${camelCase(slug)}', {
     // TODO: Add service methods and state
     check() {
@@ -131,13 +145,15 @@ export const ${slug}Plugin = new Elysia({ name: 'plugin/${slug}' })
 }
 
 export function pluginTestTemplate({ slug, pascalName }: ModuleMeta) {
+  const name = camelCase(slug);
+
   return `${LOOM_GENERATED_HEADER}import { describe, expect, test } from "bun:test";
 import { Elysia } from "elysia";
-import { ${slug}Plugin } from "../../src/core/plugins/${slug}.plugin";
+import { ${name}Plugin } from "../../src/core/plugins/${slug}.plugin";
 
 describe("${slug} plugin", () => {
   const app = new Elysia()
-    .use(${slug}Plugin)
+    .use(${name}Plugin)
     .get("/test", ({ ${camelCase(slug)} }) => ${camelCase(slug)}.check());
 
   test("decorates context", async () => {
