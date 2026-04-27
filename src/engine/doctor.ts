@@ -35,7 +35,7 @@ import {
   scanTs
 } from "../lib/fs";
 import { escapeRegExp, fullRoutePath, normalizeModuleName } from "../lib/utils";
-import type { LoomContext } from "../lib/types";
+import type { LoomContext, SkeletonContext } from "../lib/types";
 import { ANCHORS, createContext } from "../lib/types";
 
 export async function runDoctor(ctx: LoomContext = createContext(), strict = false) {

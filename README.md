@@ -7,7 +7,7 @@ Loom is convention over configuration for agent-driven backend work. The package
 ## Install Into An App
 
 ```bash
-bunx github:ruwanego/elysia-loom ./my-elysia-app --health
+bunx elysia-loom ./my-elysia-app --health
 ```
 
 Local development from this repo:
@@ -38,7 +38,7 @@ This repository is the CLI package, not an Elysia app.
 
 ```txt
 src/                   CLI product source (lib, generators, engine)
-dist/                  built bundle (loom.js — copied into target apps)
+dist/                  package build output (installer.js bin, loom.js target CLI)
 templates/default/     files copied into target Elysia apps
 tests/                 package tests
 .tmp/                  ignored generated target apps during e2e tests
@@ -48,7 +48,7 @@ tests/                 package tests
 
 ```bash
 bun install
-bun run build          # produces dist/loom.js
+bun run build          # produces dist/installer.js and dist/loom.js
 bun run check          # build + test + pack verification
 ```
 

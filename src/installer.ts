@@ -91,7 +91,7 @@ function printHelp() {
   console.log(`
 LOOM INSTALLER
 Usage:
-  bunx github:ruwanego/elysia-loom <target> [flags]
+  bunx elysia-loom <target> [flags]
   bun run loom:install <target> [flags]
 
 Flags:
@@ -193,38 +193,29 @@ console.log(\`Elysia running at \${app.server?.hostname}:\${app.server?.port}\`)
 }
 
 function insertImportAnchor(content: string) {
-  const lines = content.split(/\r?\n/);
-  let lastImportIndex = -1;
+  const lastImportMatch = [...content.matchAll(/^import\s+.*;?$/gm)].pop();
 
-  for (const [index, line] of lines.entries()) {
-    if (line.trim().startsWith("import ")) {
-      lastImportIndex = index;
-    }
-  }
-
-  if (lastImportIndex === -1) {
+  if (!lastImportMatch) {
     return `// [LOOM_IMPORT_ANCHOR]\n${content}`;
   }
 
-  lines.splice(lastImportIndex + 1, 0, "// [LOOM_IMPORT_ANCHOR]");
-  return lines.join("\n");
+  const index = lastImportMatch.index! + lastImportMatch[0].length;
+  return `${content.slice(0, index)}\n// [LOOM_IMPORT_ANCHOR]${content.slice(index)}`;
 }
 
 function insertModuleAnchor(content: string) {
-  if (!content.includes(".listen(")) {
-    throw new InstallError("src/index.ts must contain .listen(...) or an existing // [LOOM_MODULE_ANCHOR].");
+  const listenMatch = content.match(/^(\s*)\.listen\(/m);
+
+  if (listenMatch) {
+    const indent = listenMatch[1];
+    return content.replace(/^(\s*)\.listen\(/m, `${indent}// [LOOM_MODULE_ANCHOR]\n${indent}.listen(`);
   }
 
-  const lines = content.split(/\r?\n/);
-  const listenLineIndex = lines.findIndex((line) => line.includes(".listen("));
-
-  if (listenLineIndex >= 0 && lines[listenLineIndex].trim().startsWith(".listen(")) {
-    const indent = lines[listenLineIndex].match(/^\s*/)?.[0] ?? "";
-    lines.splice(listenLineIndex, 0, `${indent}// [LOOM_MODULE_ANCHOR]`);
-    return lines.join("\n");
+  if (content.includes(".listen(")) {
+    return content.replace(".listen(", "\n  // [LOOM_MODULE_ANCHOR]\n  .listen(");
   }
 
-  return content.replace(".listen(", "\n  // [LOOM_MODULE_ANCHOR]\n  .listen(");
+  throw new InstallError("src/index.ts must contain .listen(...) or an existing // [LOOM_MODULE_ANCHOR].");
 }
 
 async function copyProjectFile(config: InstallOptions, sourceRoot: string, relativePath: string) {

@@ -2,7 +2,7 @@
 
 This repository builds `elysia-loom`, the Loom CLI/installer package. It is not a live Elysia app and is not Loom-managed.
 
-Treat `src/loom.ts` (barrel) and `src/installer.ts` as the product entry points. Product source modules live in `src/`. Build output goes to `dist/loom.js`.
+Treat `src/loom.ts` (barrel) and `src/installer.ts` as the product entry points. Product source modules live in `src/`. Build output goes to `dist/installer.js` and `dist/loom.js`.
 
 Before any task:
 
@@ -18,5 +18,5 @@ Rules that must not be missed:
 - Prefer temporary generated Elysia apps in tests for runtime checks.
 - Keep CLI product logic in `src/` subdirectories (`lib/`, `generators/`, `engine/`).
 - Keep installer/package bootstrap logic in `src/installer.ts`.
-- Run `bun run build` to produce `dist/loom.js` before testing.
+- Run `bun run build` to produce `dist/installer.js` and `dist/loom.js` before testing.
 - Run `bun run check` (build + test + pack) before handing work back.

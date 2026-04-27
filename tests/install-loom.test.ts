@@ -45,12 +45,13 @@ describe("loom installer", () => {
 
     expect(pkg.name).toBe("elysia-loom");
     expect(pkg.version).toContain("alpha");
-    expect(pkg.bin["elysia-loom"]).toBe("./src/installer.ts");
-    expect(pkg.bin["create-loom"]).toBe("./src/installer.ts");
-    expect(pkg.bin["loom-install"]).toBe("./src/installer.ts");
-    expect(pkg.files).toContain("src");
-    expect(pkg.files).toContain("dist/loom.js");
+    expect(pkg.bin["elysia-loom"]).toBe("./dist/installer.js");
+    expect(pkg.bin["create-loom"]).toBe("./dist/installer.js");
+    expect(pkg.bin["loom-install"]).toBe("./dist/installer.js");
+    expect(pkg.files).toContain("dist");
     expect(pkg.files).toContain("templates/default");
+    expect(pkg.scripts.prepack).toBe("bun run build");
+    expect(pkg.module).toBe("dist/loom.js");
     expect(installer.startsWith("#!/usr/bin/env bun")).toBe(true);
   });
 
